@@ -266,7 +266,7 @@ def fuzzing_POST(args, wordlist:list):
         body_data = list2dict(raw_data)
 
         try:
-            req = requests.request(method="POST", url=args.url, params=body_data, timeout=int(args.timeout))
+            req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(args.url))
             continue
@@ -274,7 +274,7 @@ def fuzzing_POST(args, wordlist:list):
             print("[!] Error stablishing connection, finishing program...")
             run_event.clear()
             exit(0)
-            
+
         # in case server didnt send back content length and server info            
         req.headers.setdefault("Content-Length", "UNK")
         req.headers.setdefault("Server",         "UNK")
@@ -328,7 +328,7 @@ def response_filter(filters, response):
         matching = False
         for header in response.headers.keys():
             if re.search(filters.re, response.headers[header]) != None:
-                matching == True
+                matching = True
                 break
 
         if matching == True:
@@ -337,7 +337,7 @@ def response_filter(filters, response):
             aux = re.search(filters.re, response.content.decode("latin-1"))
             if aux != None:
                 filter_status = True
-    
+
     return filter_status
 
 def show_config(args):
@@ -512,4 +512,8 @@ if __name__ == "__main__":
         print("\n\n\n[!] Keyboard interrupt :: FInishing the program ")
         exit(0)
 
+
+# agregar opcion para proxies
+# agregar opcion para headers
+# agregar opcion para cookies
 
