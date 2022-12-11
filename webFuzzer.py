@@ -9,6 +9,7 @@ import threading
 import socket
 import re
 from time import sleep
+from sys import argv
 
 def banner():
     text = """
@@ -31,73 +32,73 @@ def parse_arguments():
                                      usage="./webFuzzer.py [options] {-w wordlist} url",
                                      description="a simple python multithreading web fuzzer",
                                      epilog="https://github.com/mind2hex/")
+    parser.add_argument("url", help=f"target url. example[http://localhost/{magic_word}]")
     parser.add_argument("--usage", action="store_true", 
-                        help="show usage examples")
-    parser.add_argument("url", help=f"specify target url. example[http://localhost/{magic_word}]")
-    parser.add_argument("--http-method", metavar="M", choices=["GET", "POST"], default="GET",
-                        help="specify an HTTP for the request method    default[GET]")
-    parser.add_argument("--port", default=80, metavar="<n>", type=int,
-                        help="specify target port")
-    parser.add_argument("--wordlist", metavar="/path", required=True, type=argparse.FileType('r', encoding='latin-1'),
-                        help="specify wordlist")
+                        help="show usage examples")    
+    parser.add_argument("-M", "--http-method", metavar="M", choices=["GET", "POST"], default="GET",
+                        help="http method to use. default[GET]")
+    parser.add_argument("-p", "--port", default=80, metavar="<n>", type=int,
+                        help="target port")
+    parser.add_argument("-w", "--wordlist", metavar="/path", required=True, type=argparse.FileType('r', encoding='latin-1'),
+                        help="wordlist")
+    parser.add_argument("-H", "--headers", metavar="key=val", default="NONE",
+                        help="http headers.")
+    parser.add_argument("-C", "--cookies", metavar="str", default="NONE",
+                        help="Cookies.")                        
     parser.add_argument("--body-data", metavar="key=val", default="NONE",
-                        help=f"specify body data to send using post method. example[username=admin;password={magic_word}]")
-    parser.add_argument("--proxies", metavar="url", default="NONE",
-                        help="specify coma separated proxies url's ")
+                        help=f"body data to send using post method. example[username=admin;password={magic_word}]")
+    parser.add_argument("-P", "--proxy", metavar="url", default="NONE",
+                        help="proxies url to use")
 
     # timming args
     timming = parser.add_argument_group("timming")
     timming.add_argument("--threads", metavar="<n>", type=int,
-                        help="specify threads [default 1]", default=1)
+                        help="threads [default 1]", default=1)
     timming.add_argument("--timeout", metavar="<n>",
-                        help="timeout per request in seconds [default 10]", default=10)
+                        help="time to wait per request response in seconds [default 10]", default=10)
+    timming.add_argument("--timewait", metavar="<n>",
+                        help="time to wait between sending requests in seconds [default 0]", default=0)
 
     # debugging args
     debug = parser.add_argument_group("debugging")
-    debug.add_argument("--verbose", action="store_true",
+    debug.add_argument("-v", "--verbose", action="store_true",
                        help="show verbose message")
-    debug.add_argument("--debug", action="store_true",
+    debug.add_argument("-d", "--debug", action="store_true",
                        help="show debugging message")
-    debug.add_argument("--output", metavar="file", type=argparse.FileType('w'),
+    debug.add_argument("-o", "--output", metavar="file", type=argparse.FileType('w'),
                        help="save output to a file")
 
     # filter args
     filters = parser.add_argument_group("filters")
     show_filters = filters.add_mutually_exclusive_group()
     show_filters.add_argument("--ss-filter", metavar="nnn,nnn...", default="NONE",
-                              help="only show responses with the specified comma separated status codes. ")
+                              help="show responses with the specified status codes.")
     show_filters.add_argument("--sc-filter", metavar="nnn,nnn...", default="NONE",
-                              help="only show responses with the specified comma separated content lenghts. example[nnn,nnnn,n...]")
+                              help="show responses with the specified content lenghts.")
     show_filters.add_argument("--sw-filter", metavar="ws1,ws2...", default="NONE",
-                              help="only show responses with the specified comma separated web servers. example[apache,nginx...]")
+                              help="show responses with the specified web servers.")
     show_filters.add_argument("--sr-filter", metavar="pattern-regex", default="NONE",
-                              help="only show responses with the specified response body matching pattern...")
+                              help="show responses matching the specified pattern...")
 
     hide_filters = filters.add_mutually_exclusive_group()
     hide_filters.add_argument("--hs-filter", metavar="nnn,nnn...", default="NONE",
-                              help="hide responses with the specified comma separated status codes.")
+                              help="hide responses with the specified status codes.")
     hide_filters.add_argument("--hc-filter", metavar="nnn,nnn...", default="NONE",
-                              help="hide responses with the specified comma separated content lenghts. example[nnn,nnnn,n...]")
+                              help="hide responses with the specified content lenghts. example[nnn,nnnn,n...]")
     hide_filters.add_argument("--hw-filter", metavar="ws1,ws2...", default="NONE",
                               help="hide responses with the specified comma separated web servers. example[apache,nginx...]")
     hide_filters.add_argument("--hr-filter", metavar="pattern-regex", default="NONE",
-                              help="hide responses with the specified pattern...")    
+                              help="hide responses matching the specified pattern...")    
 
-    
+    if ("--usage" in argv):
+        usage()
 
     parsed_arguments               = parser.parse_args()
-
     parsed_arguments.magic_word    = magic_word
-
-    parsed_arguments.wordlist_path = parsed_arguments.wordlist.name
-    parsed_arguments.wordlist      = parsed_arguments.wordlist.read().split('\n')
-    
+    parsed_arguments.wordlist_path    = parsed_arguments.wordlist.name
+    parsed_arguments.wordlist_content = parsed_arguments.wordlist.read().split('\n')
     parsed_arguments.body_data     = parsed_arguments.body_data.split("&")
-    for i in range(len(parsed_arguments.body_data)):
-        parsed_arguments.body_data[i] = parsed_arguments.body_data[i].split("=")
-
     parsed_arguments.proxies       = parsed_arguments.proxies.split(",")
-
     parsed_arguments.ss_filter     = parsed_arguments.ss_filter.split(",")
     parsed_arguments.sc_filter     = parsed_arguments.sc_filter.split(",")
     parsed_arguments.sw_filter     = parsed_arguments.sw_filter.split(",")
@@ -107,8 +108,30 @@ def parse_arguments():
 
     return parsed_arguments
 
+def usage():
+    """ Only show ussage messages """
+    target   = "https://google.com/"
+    magic    = "#FUZZ#"
+    wordlist = "/usr/share/wordlist/wordlist.txt"
+
+    print("### BASIC dir enumeration with webFuzzer")
+    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --threads 40 --verbose --wordlist {wordlist} {target}{magic}\n")
+
+    print("### BASIC parameter testing with GET METHOD")
+    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --threads 40 --verbose --wordlist {wordlist} {target}script.php?param1={magic}\n")
+
+    print("### Fuzz post data ")
+    print(f"$ python3 webFuzzer.py --http-method POST --hr-filter 'alert=1' --wordlist {wordlist} --body-data 'username=juanito&password=#FUZZ#' {target}\n")
+
+    exit(0)
+
+
+
 def validating_arguments(args):
     MAX_THREADS = 60
+
+    print(args)
+    exit(0)
     
     # validating url format
     if (validators.url(args.url) != True):
