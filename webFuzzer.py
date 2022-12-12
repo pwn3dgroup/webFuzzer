@@ -10,6 +10,9 @@ import socket
 import re
 from time import sleep
 from sys import argv
+from urllib.parse import parse_qs
+from urllib.parse import urlparse
+from ast import literal_eval
 
 def banner():
     text = """
@@ -34,29 +37,29 @@ def parse_arguments():
                                      epilog="https://github.com/mind2hex/")
     parser.add_argument("url", help=f"target url. example[http://localhost/{magic_word}]")
     parser.add_argument("--usage", action="store_true", 
-                        help="show usage examples")    
+                        help="show usage examples")
+    parser.add_argument("-B", "--body-data", metavar="key=val", default={},
+                        help=f"body data to send using post method. example[username=admin;password={magic_word}]")
+    parser.add_argument("-C", "--cookies", metavar="str", default="NONE",
+                        help="Cookies.")
+    parser.add_argument("-H", "--headers", metavar="key=val", default="NONE",
+                        help="http headers.")    
     parser.add_argument("-M", "--http-method", metavar="M", choices=["GET", "POST"], default="GET",
                         help="http method to use. default[GET]")
     parser.add_argument("-p", "--port", default=80, metavar="<n>", type=int,
                         help="target port")
+    parser.add_argument("-P", "--proxy", metavar="url", default={},
+                        help="proxies url to use")    
     parser.add_argument("-w", "--wordlist", metavar="/path", required=True, type=argparse.FileType('r', encoding='latin-1'),
                         help="wordlist")
-    parser.add_argument("-H", "--headers", metavar="key=val", default="NONE",
-                        help="http headers.")
-    parser.add_argument("-C", "--cookies", metavar="str", default="NONE",
-                        help="Cookies.")                        
-    parser.add_argument("--body-data", metavar="key=val", default="NONE",
-                        help=f"body data to send using post method. example[username=admin;password={magic_word}]")
-    parser.add_argument("-P", "--proxy", metavar="url", default="NONE",
-                        help="proxies url to use")
 
-    # timming args
-    timming = parser.add_argument_group("timming")
-    timming.add_argument("--threads", metavar="<n>", type=int,
+    # performance args
+    performance = parser.add_argument_group("performance")
+    performance.add_argument("--threads", metavar="<n>", type=int,
                         help="threads [default 1]", default=1)
-    timming.add_argument("--timeout", metavar="<n>",
+    performance.add_argument("--timeout", metavar="<n>",
                         help="time to wait per request response in seconds [default 10]", default=10)
-    timming.add_argument("--timewait", metavar="<n>",
+    performance.add_argument("--timewait", metavar="<n>",
                         help="time to wait between sending requests in seconds [default 0]", default=0)
 
     # debugging args
@@ -97,8 +100,17 @@ def parse_arguments():
     parsed_arguments.magic_word    = magic_word
     parsed_arguments.wordlist_path    = parsed_arguments.wordlist.name
     parsed_arguments.wordlist_content = parsed_arguments.wordlist.read().split('\n')
-    parsed_arguments.body_data     = parsed_arguments.body_data.split("&")
-    parsed_arguments.proxies       = parsed_arguments.proxies.split(",")
+    parsed_arguments.body_data     = parse_qs(parsed_arguments.body_data)
+
+    if len(parsed_arguments.proxy) != 0:
+        try:
+            parsed_arguments.proxy = parsed_arguments.proxy.split(",")
+            for i in range(len(parsed_arguments.proxy)):
+                parsed_arguments.proxy[i] = parsed_arguments.proxy[i].split(";")
+            parsed_arguments.proxy = dict(parsed_arguments.proxy)
+        except:
+            raise Exception(" Invalid proxy ")
+
     parsed_arguments.ss_filter     = parsed_arguments.ss_filter.split(",")
     parsed_arguments.sc_filter     = parsed_arguments.sc_filter.split(",")
     parsed_arguments.sw_filter     = parsed_arguments.sw_filter.split(",")
@@ -112,60 +124,49 @@ def usage():
     """ Only show ussage messages """
     target   = "https://google.com/"
     magic    = "#FUZZ#"
-    wordlist = "/usr/share/wordlist/wordlist.txt"
-
+    wordlist = "wordlist.txt"
+    proxy    = "http;http://localhost:8080,https;http://localhost:8000"
+    
     print("### BASIC dir enumeration with webFuzzer")
-    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --threads 40 --verbose --wordlist {wordlist} {target}{magic}\n")
-
+    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --wordlist {wordlist} {target}{magic}\n")
     print("### BASIC parameter testing with GET METHOD")
-    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --threads 40 --verbose --wordlist {wordlist} {target}script.php?param1={magic}\n")
-
+    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --wordlist {wordlist} {target}script.php?param1={magic}\n")
     print("### Fuzz post data ")
     print(f"$ python3 webFuzzer.py --http-method POST --hr-filter 'alert=1' --wordlist {wordlist} --body-data 'username=juanito&password=#FUZZ#' {target}\n")
-
+    print("### using proxies ")
+    print(f"$ python3 webFuzzer.py --http-method GET --proxy {proxy} --wordlist {wordlist} {target}{magic}\n")
     exit(0)
 
 
-
-def validating_arguments(args):
-    MAX_THREADS = 60
-
-    print(args)
-    exit(0)
-    
+def validate_arguments(args):
     # validating url format
-    if (validators.url(args.url) != True):
-        raise Exception(f"invalid url: {args.url}")
+    validate_url(args.url)
 
-    # validating magic_word inside GET request    
+    # checking magic_word inside GET request
     if ((args.http_method == "GET") and (args.magic_word not in args.url)):
         raise Exception(f"magic word {args.magic_word} not in the url: {args.url}")
-    elif (args.http_method == "POST"):
-        # validating magic_word inside POST request    
+
+    # checking magic_word inside POST request
+    if (args.http_method == "POST"):
+        if len(args.body_data) == 0:
+            raise Exception("No body data specified...")
+
+        # checking magic word in body data first
         state = False
-        if (args.http_method == "POST"): 
-            for data in args.body_data:
-
-                if len(data) == 1 or len(data[0]) == 0:
-                    raise Exception("Invalid body data")
-
-                for i in data:
-                    if args.magic_word in i:
-                        state = True
+        bd = str(args.body_data)
+        if args.magic_word in bd:
+            state = True
+        
+        # if magic word not in body data, then search in url
         if state == False:
-            raise Exception(f"magic word not in body data...")
-    
-    # validating port number
-    if (args.port not in range(1, 65535)):
-        raise Exception(f"Invalid port number: {args.port}")
+            if args.magic_word not in args.url:
+                raise Exception(f" magic word {args.magic_word} not specified in body data neither url")
+
+    # validating port number 
+    validate_port(args.port)
 
     # validating maximum threads
-    if (args.threads > MAX_THREADS):
-        raise Exception(f"the threads exceed the thread limit. If you want your cpu to explode, modify the MAX_THREADS variable")
-
-    # validating threads and wordlist len
-    if (args.threads > len(args.wordlist)):
-        raise Exception(f"too many threads for so few words...")
+    validate_threads(args.threads, len(args.wordlist_content))
 
     # validating ss_filter (show status code filter)
     if (args.ss_filter[0] != "NONE"):
@@ -179,9 +180,6 @@ def validating_arguments(args):
             if content_length.isdigit == False:
                 raise Exception(f" incorrect sc_filter value {content_length}")
 
-    # validating sw_filter (show web server filter)
-    # enter web server validations here if needed
-        
     # validating hs-filter (hide status code filter)
     if (args.hs_filter[0] != "NONE"):
         for status_code in args.hs_filter:
@@ -193,11 +191,27 @@ def validating_arguments(args):
         for content_length in args.hc_filter:
             if content_length.isdigit == False:
                 raise Exception(f" incorrect hc_filter value {content_length}")
+            
 
-    # validating hw_filter (hide web server filter)
-    # enter web server validations here if needed                
+def validate_url(url):
+    if (validators.url(url) != True):
+        raise Exception(f"invalid url: {args.url}")    
 
-        
+def validate_port(port):
+    if (port not in range(1, 65535)):
+        raise Exception(f"Invalid port number: {args.port}")    
+
+def validate_threads(n_threads, n_wordlist):
+    MAX_THREADS = 60
+    # n threads cant be higher than MAX_THREADS
+    if (n_threads > MAX_THREADS):
+        raise Exception(f"the threads exceed the thread limit. If you want your cpu to explode, modify the MAX_THREADS variable")
+
+    # threads cant be higher than wordlist len
+    if (n_threads > n_wordlist ):
+        raise Exception(f"too many threads for so few words...")    
+
+    
 def fuzzing_GET(args, wordlist:list):
     class Namespace():
         pass
@@ -213,7 +227,7 @@ def fuzzing_GET(args, wordlist:list):
         
         new_url = args.url.replace(args.magic_word, word)
         try:
-            req = requests.request("GET", new_url, timeout=int(args.timeout))
+            req = requests.request("GET", new_url, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(new_url))
             continue
@@ -250,21 +264,6 @@ def fuzzing_GET(args, wordlist:list):
     
     return 0
 
-def list2dict(lista:list):
-    d = dict()
-    for i in lista:
-        d[i[0]] = i[1]
-    
-    return d
-
-def list2string(lista:list):
-    string = ""
-    for i in lista:
-        string += "=".join(i)
-        string += "&"
-
-    return string.strip("&")
-
 def fuzzing_POST(args, wordlist:list):
     class Namespace():
         pass
@@ -277,19 +276,14 @@ def fuzzing_POST(args, wordlist:list):
         # checking if threads should still running
         if run_event.is_set() == False:
             break
-        
-        # replacing magic word in body data
-        raw_data = list()
-        for i in range(len(args.body_data)):
-            raw_data.append(args.body_data[i].copy())
-            for j in range(len(raw_data[i])):
-                if args.magic_word in raw_data[i][j]:
-                    raw_data[i][j] = raw_data[i][j].replace(args.magic_word, word)
 
-        body_data = list2dict(raw_data)
+        # replacing magic word from body data
+        body_data = str(args.body_data)
+        body_data = body_data.replace(args.magic_word, word)
+        body_data = literal_eval(body_data)
 
         try:
-            req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False)
+            req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(args.url))
             continue
@@ -309,7 +303,7 @@ def fuzzing_POST(args, wordlist:list):
             filters.re = args.sr_filter
 
             if response_filter(filters, req) == True:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(list2string(raw_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue               
 
         if (args.hs_filter[0] != "NONE" or args.hc_filter[0] != "NONE" or args.hw_filter[0] != "NONE" or args.hr_filter != "NONE"):
@@ -319,10 +313,10 @@ def fuzzing_POST(args, wordlist:list):
             filters.re = args.hr_filter
 
             if response_filter(filters, req) == False:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(list2string(raw_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue                               
         
-        print("%-70s\t%-3s\t%-10s\t%-10s"%(list2string(raw_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
+        print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
 
     return 0    
 
@@ -369,15 +363,14 @@ def show_config(args):
     print(f"             URL: {args.url}")
     print(f"     HTTP METHOD: {args.http_method}")
     if (args.http_method == "POST"):
-        print(f"           BODY DATA: {list2string(args.body_data)}")
+        print(f"           BODY DATA: {args.body_data}")
             
     print(f"            PORT: {args.port}")
     print(f"        WORDLIST: {args.wordlist_path}")
-    if (args.proxies != "NONE"):
-        for proxy in args.proxies:
-            print(f"           PROXY: {proxy}")
+    print(f"           PROXY: {args.proxy}")
+
     print()
-    print("[!] Timming...")
+    print("[!] Performance...")
     print(f"         THREADS: {args.threads}")
     print(f"         TIMEOUT: {args.timeout}")
     print()
@@ -395,7 +388,7 @@ def show_config(args):
     print(f"         HIDE CL: {args.hc_filter}") # content length
     print(f"         HIDE WS: {args.hw_filter}") # web server
     print(f"         HIDE RE: {args.hr_filter}") # regex    
-    print("==========================================\n")    
+    print("==========================================\n")
 
     
 def split_wordlist(wordlist, threads):
@@ -413,14 +406,11 @@ def split_wordlist(wordlist, threads):
 
     return result
 
-
 def verbose(state, msg):
     if state == True:
         print("[!] verbose:", msg)
 
-
 def GET(args):
-
     # header...
     print("%-70s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))
 
@@ -428,11 +418,17 @@ def GET(args):
     global run_event
     run_event = threading.Event()
     run_event.set()
+
+    # separating wordlist from arguments
+    wordlist_content = list()
+    for l in args.wordlist_content:
+        wordlist_content.append(l.copy())
+    args.wordlist_content = []
     
     # inserting threads in a list
     thread_list = []
     for thread in range(0, args.threads):
-        thread_list.append(threading.Thread(target=fuzzing_GET, args=(args, args.wordlist[thread])))
+        thread_list.append(threading.Thread(target=fuzzing_GET, args=(args, wordlist_content[thread])))
 
     # starting threads
     for thread in thread_list:
@@ -470,11 +466,17 @@ def POST(args):
     global run_event
     run_event = threading.Event()
     run_event.set()
+
+    # separating wordlist from arguments
+    wordlist_content = list()
+    for l in args.wordlist_content:
+        wordlist_content.append(l.copy())
+    args.wordlist_content = []
     
     # inserting threads in a list
     thread_list = []
     for thread in range(0, args.threads):
-        thread_list.append(threading.Thread(target=fuzzing_POST, args=(args, args.wordlist[thread])))
+        thread_list.append(threading.Thread(target=fuzzing_POST, args=(args, wordlist_content[thread])))
 
     # starting threads
     for thread in thread_list:
@@ -511,16 +513,15 @@ def main():
     parsed_arguments = parse_arguments()
 
     # validating arguments...
-    validating_arguments(parsed_arguments)
+    validate_arguments(parsed_arguments)
 
     # splitting wordlist in chunks for every thread
-    parsed_arguments.wordlist = split_wordlist(parsed_arguments.wordlist, parsed_arguments.threads)
+    parsed_arguments.wordlist_content = split_wordlist(parsed_arguments.wordlist_content, parsed_arguments.threads)
 
     # show user specified CLI args
     show_config(parsed_arguments)    
     sleep(2)
 
-    # web fuzzer method GET
     if parsed_arguments.http_method == "GET":
         GET(parsed_arguments)
 
@@ -535,8 +536,6 @@ if __name__ == "__main__":
         print("\n\n\n[!] Keyboard interrupt :: FInishing the program ")
         exit(0)
 
-
-# agregar opcion para proxies
 # agregar opcion para headers
 # agregar opcion para cookies
-
+# refactorizar algunas funciones
