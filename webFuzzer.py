@@ -195,11 +195,11 @@ def validate_arguments(args):
 
 def validate_url(url):
     if (validators.url(url) != True):
-        raise Exception(f"invalid url: {args.url}")    
+        raise Exception(f"invalid url: {url}")    
 
 def validate_port(port):
     if (port not in range(1, 65535)):
-        raise Exception(f"Invalid port number: {args.port}")    
+        raise Exception(f"Invalid port number: {port}")    
 
 def validate_threads(n_threads, n_wordlist):
     MAX_THREADS = 60
@@ -539,3 +539,7 @@ if __name__ == "__main__":
 # agregar opcion para headers
 # agregar opcion para cookies
 # refactorizar algunas funciones
+# si una palabra del diccionario tiene comillas, va a fallar cuando se pasa como body data en POST
+# agregar una opcion para codificar en url las solicitudes o palabras 
+# verificar las configuracions de red al inicio del programa para evitar procesos innecesarios
+# si el diccionario es muy grande, el programa tiende a congelarse
