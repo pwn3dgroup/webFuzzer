@@ -70,7 +70,7 @@ def parse_arguments():
                        help="show debugging message")
     debug.add_argument("-o", "--output", metavar="file", type=argparse.FileType('w'),
                        help="save output to a file")
-
+                       
     # filter args
     filters = parser.add_argument_group("filters")
     show_filters = filters.add_mutually_exclusive_group()
@@ -99,7 +99,6 @@ def parse_arguments():
     parsed_arguments               = parser.parse_args()
     parsed_arguments.magic_word    = magic_word
     parsed_arguments.wordlist_path    = parsed_arguments.wordlist.name
-    parsed_arguments.wordlist_content = parsed_arguments.wordlist.read().split('\n')
     parsed_arguments.body_data     = parse_qs(parsed_arguments.body_data)
 
     if len(parsed_arguments.proxy) != 0:
@@ -137,6 +136,15 @@ def usage():
     print(f"$ python3 webFuzzer.py --http-method GET --proxy {proxy} --wordlist {wordlist} {target}{magic}\n")
     exit(0)
 
+def initial_checks(args):
+    """ Initial checks before proceeds with the program execution"""
+
+    # testing target connection
+    try:
+        requests.get(args.url, timeout=5)
+    except requests.exceptions.ConnectionError:
+        print(f"[X] Failed to establish a new connection to {args.url}")
+        exit(-1)
 
 def validate_arguments(args):
     # validating url format
@@ -165,9 +173,6 @@ def validate_arguments(args):
     # validating port number 
     validate_port(args.port)
 
-    # validating maximum threads
-    validate_threads(args.threads, len(args.wordlist_content))
-
     # validating ss_filter (show status code filter)
     if (args.ss_filter[0] != "NONE"):
         for status_code in args.ss_filter:
@@ -191,7 +196,6 @@ def validate_arguments(args):
         for content_length in args.hc_filter:
             if content_length.isdigit == False:
                 raise Exception(f" incorrect hc_filter value {content_length}")
-            
 
 def validate_url(url):
     if (validators.url(url) != True):
@@ -201,18 +205,8 @@ def validate_port(port):
     if (port not in range(1, 65535)):
         raise Exception(f"Invalid port number: {port}")    
 
-def validate_threads(n_threads, n_wordlist):
-    MAX_THREADS = 60
-    # n threads cant be higher than MAX_THREADS
-    if (n_threads > MAX_THREADS):
-        raise Exception(f"the threads exceed the thread limit. If you want your cpu to explode, modify the MAX_THREADS variable")
 
-    # threads cant be higher than wordlist len
-    if (n_threads > n_wordlist ):
-        raise Exception(f"too many threads for so few words...")    
-
-    
-def fuzzing_GET(args, wordlist:list):
+def fuzzing(args):
     class Namespace():
         pass
 
@@ -220,14 +214,25 @@ def fuzzing_GET(args, wordlist:list):
 
     global run_event
     # iterating wordlist
-    for word in wordlist:
+    word = args.wordlist.readline().strip()
+    while word != '':
         # checking if threads should still running
         if run_event.is_set() == False:
             break
         
+        # replacing magic word from url
         new_url = args.url.replace(args.magic_word, word)
+
+        # replacing magic word from body data
+        body_data = str(args.body_data)
+        body_data = body_data.replace(args.magic_word, word)
+        body_data = literal_eval(body_data)
+
         try:
-            req = requests.request("GET", new_url, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
+            if args.http_method == "GET":
+                req = requests.request("GET", new_url, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
+            elif args.http_method == "POST":
+                req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(new_url))
             continue
@@ -247,7 +252,10 @@ def fuzzing_GET(args, wordlist:list):
             filters.re = args.sr_filter
 
             if response_filter(filters, req) == True:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                if args.http_method == "GET":
+                    print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                elif args.http_method == "POST":
+                    print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue               
 
         if (args.hs_filter[0] != "NONE" or args.hc_filter[0] != "NONE" or args.hw_filter[0] != "NONE" or args.hr_filter != "NONE"):
@@ -257,68 +265,20 @@ def fuzzing_GET(args, wordlist:list):
             filters.re = args.hr_filter
 
             if response_filter(filters, req) == False:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                if args.http_method == "GET":
+                    print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                elif args.http_method == "POST":
+                    print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue                               
         
-        print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
+        if args.http_method == "GET":
+            print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
+        elif args.http_method == "POST":
+            print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")            
+        word = args.wordlist.readline().strip()
     
-    return 0
-
-def fuzzing_POST(args, wordlist:list):
-    class Namespace():
-        pass
-
-    filters = Namespace()
-
-    global run_event
-    # iterating wordlist
-    for word in wordlist:
-        # checking if threads should still running
-        if run_event.is_set() == False:
-            break
-
-        # replacing magic word from body data
-        body_data = str(args.body_data)
-        body_data = body_data.replace(args.magic_word, word)
-        body_data = literal_eval(body_data)
-
-        try:
-            req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
-        except requests.ConnectTimeout:
-            print("[!] Connection Time Out: %-100s"%(args.url))
-            continue
-        except socket.error:
-            print("[!] Error stablishing connection, finishing program...")
-            run_event.clear()
-            exit(0)
-
-        # in case server didnt send back content length and server info            
-        req.headers.setdefault("Content-Length", "UNK")
-        req.headers.setdefault("Server",         "UNK")
-
-        if (args.ss_filter[0] != "NONE" or args.sc_filter[0] != "NONE" or args.sw_filter[0] != "NONE" or args.sr_filter != "NONE"):
-            filters.sc = args.ss_filter
-            filters.cl = args.sc_filter
-            filters.ws = args.sw_filter
-            filters.re = args.sr_filter
-
-            if response_filter(filters, req) == True:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-                continue               
-
-        if (args.hs_filter[0] != "NONE" or args.hc_filter[0] != "NONE" or args.hw_filter[0] != "NONE" or args.hr_filter != "NONE"):
-            filters.sc = args.hs_filter
-            filters.cl = args.hc_filter
-            filters.ws = args.hw_filter
-            filters.re = args.hr_filter
-
-            if response_filter(filters, req) == False:
-                print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-                continue                               
-        
-        print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
-
     return 0    
+
 
 def response_filter(filters, response):
     filter_status = False
@@ -390,22 +350,6 @@ def show_config(args):
     print(f"         HIDE RE: {args.hr_filter}") # regex    
     print("==========================================\n")
 
-    
-def split_wordlist(wordlist, threads):
-    """ This function just split the wordlist in equal size chunks for every thread """
-    result = []
-    wordlist_len = len(wordlist)
-    wordlist_chunks = wordlist_len // threads
-    aux_0 = 0
-    aux_1 = wordlist_chunks
-
-    while aux_1 <= wordlist_len:
-        result.append(wordlist[aux_0:aux_1])
-        aux_0 = aux_1
-        aux_1 += wordlist_chunks
-
-    return result
-
 def verbose(state, msg):
     if state == True:
         print("[!] verbose:", msg)
@@ -419,21 +363,16 @@ def GET(args):
     run_event = threading.Event()
     run_event.set()
 
-    # separating wordlist from arguments
-    wordlist_content = list()
-    for l in args.wordlist_content:
-        wordlist_content.append(l.copy())
-    args.wordlist_content = []
-    
     # inserting threads in a list
     thread_list = []
+    
     for thread in range(0, args.threads):
-        thread_list.append(threading.Thread(target=fuzzing_GET, args=(args, wordlist_content[thread])))
+        thread_list.append(threading.Thread(target=fuzzing, args=[args]))
 
     # starting threads
     for thread in thread_list:
         thread.start()
-        
+    
     exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
@@ -467,16 +406,10 @@ def POST(args):
     run_event = threading.Event()
     run_event.set()
 
-    # separating wordlist from arguments
-    wordlist_content = list()
-    for l in args.wordlist_content:
-        wordlist_content.append(l.copy())
-    args.wordlist_content = []
-    
     # inserting threads in a list
     thread_list = []
     for thread in range(0, args.threads):
-        thread_list.append(threading.Thread(target=fuzzing_POST, args=(args, wordlist_content[thread])))
+        thread_list.append(threading.Thread(target=fuzzing, args=[args]))
 
     # starting threads
     for thread in thread_list:
@@ -512,11 +445,11 @@ def main():
     # parsing arguments...
     parsed_arguments = parse_arguments()
 
+    # program initial checks
+    initial_checks(parsed_arguments)
+
     # validating arguments...
     validate_arguments(parsed_arguments)
-
-    # splitting wordlist in chunks for every thread
-    parsed_arguments.wordlist_content = split_wordlist(parsed_arguments.wordlist_content, parsed_arguments.threads)
 
     # show user specified CLI args
     show_config(parsed_arguments)    
@@ -542,4 +475,5 @@ if __name__ == "__main__":
 # si una palabra del diccionario tiene comillas, va a fallar cuando se pasa como body data en POST
 # agregar una opcion para codificar en url las solicitudes o palabras 
 # verificar las configuracions de red al inicio del programa para evitar procesos innecesarios
-# si el diccionario es muy grande, el programa tiende a congelarse
+# usarl urlparse para manejar las url
+# opcion para permitir o rechazar redirecciones
