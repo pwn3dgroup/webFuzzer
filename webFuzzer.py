@@ -12,6 +12,7 @@ from time import sleep
 from sys import argv
 from urllib.parse import parse_qs
 from urllib.parse import urlparse
+from urllib.parse import quote
 from ast import literal_eval
 
 def banner():
@@ -30,85 +31,75 @@ def banner():
 
 def parse_arguments():
     # general args
-    magic_word = "#FUZZ#"
+    magic_word = "@FUZZ@"
     parser = argparse.ArgumentParser(prog="./webFuzzer.py",
                                      usage="./webFuzzer.py [options] {-w wordlist} url",
                                      description="a simple python multithreading web fuzzer",
                                      epilog="https://github.com/mind2hex/")
     parser.add_argument("url", help=f"target url. example[http://localhost/{magic_word}]")
-    parser.add_argument("--usage", action="store_true", 
-                        help="show usage examples")
-    parser.add_argument("-B", "--body-data", metavar="key=val", default={},
-                        help=f"body data to send using post method. example[username=admin;password={magic_word}]")
-    parser.add_argument("-C", "--cookies", metavar="str", default="NONE",
-                        help="Cookies.")
-    parser.add_argument("-H", "--headers", metavar="key=val", default="NONE",
-                        help="http headers.")    
-    parser.add_argument("-M", "--http-method", metavar="M", choices=["GET", "POST"], default="GET",
-                        help="http method to use. default[GET]")
-    parser.add_argument("-p", "--port", default=80, metavar="<n>", type=int,
-                        help="target port")
-    parser.add_argument("-P", "--proxy", metavar="url", default={},
-                        help="proxies url to use")    
-    parser.add_argument("-w", "--wordlist", metavar="/path", required=True, type=argparse.FileType('r', encoding='latin-1'),
-                        help="wordlist")
+    parser.add_argument("--usage", action="store_true", help="show usage examples")
+    parser.add_argument("-B", "--body-data", metavar="", default={},
+                        help=f"specify body data to send using post method. ex: 'username=admin&password={magic_word}'")
+    parser.add_argument("-C", "--cookies", metavar="", default={},
+                        help="specify cookies in url param format. ex: 'Cookie1=lol&Cookie2=lol'")
+    parser.add_argument("-H", "--headers", metavar="", default={},
+                        help="specify http headers in url param format. ex: 'Header1=lol&Header2=lol'")    
+    parser.add_argument("-M", "--http-method", metavar="", choices=["GET", "POST"], default="GET",
+                        help="specify http method to use. [GET|POST] default[GET]")
+    parser.add_argument("-P", "--proxies", metavar="", default={},
+                        help="specify proxies. ex: 'http;http://myproxies1:8080,https;http://myproxies2:8000'")    
+    parser.add_argument("-w", "--wordlist", metavar="", required=True, type=argparse.FileType('r', encoding='latin-1'),
+                        help="specify wordlist to use.")
+    parser.add_argument("-f", "--follow", action="store_true", default=False,
+                        help="follow redirections")
+                        
 
     # performance args
-    performance = parser.add_argument_group("performance")
-    performance.add_argument("--threads", metavar="<n>", type=int,
-                        help="threads [default 1]", default=1)
-    performance.add_argument("--timeout", metavar="<n>",
-                        help="time to wait per request response in seconds [default 10]", default=10)
-    performance.add_argument("--timewait", metavar="<n>",
-                        help="time to wait between sending requests in seconds [default 0]", default=0)
+    performance = parser.add_argument_group("performance options")
+    performance.add_argument("--threads", metavar="<n>", type=int, default=1, help="specify how many threads [default 1]" )
+    performance.add_argument("--timeout", metavar="<n>", type=int, default=10, help="specify time to wait per request response in seconds [default 10]")
+    performance.add_argument("--timewait", metavar="<n>", type=int, default=0, help="specify time to wait between sending requests in seconds [default 0]")
+    performance.add_argument("--retries", metavar="<n>", type=int, default=0, help="specify retries per connections if connection fail")
 
     # debugging args
-    debug = parser.add_argument_group("debugging")
-    debug.add_argument("-v", "--verbose", action="store_true",
-                       help="show verbose message")
-    debug.add_argument("-d", "--debug", action="store_true",
-                       help="show debugging message")
-    debug.add_argument("-o", "--output", metavar="file", type=argparse.FileType('w'),
-                       help="save output to a file")
+    debug = parser.add_argument_group("debugging options")
+    debug.add_argument("-v", "--verbose", action="store_true", help="show verbose messages")
+    debug.add_argument("-d", "--debug", action="store_true", help="show debugging messages")
+    debug.add_argument("-o", "--output", metavar="", type=argparse.FileType('w'), help="save output to a file")
                        
     # filter args
-    filters = parser.add_argument_group("filters")
+    filters = parser.add_argument_group("filter options")
     show_filters = filters.add_mutually_exclusive_group()
-    show_filters.add_argument("--ss-filter", metavar="nnn,nnn...", default="NONE",
-                              help="show responses with the specified status codes.")
-    show_filters.add_argument("--sc-filter", metavar="nnn,nnn...", default="NONE",
-                              help="show responses with the specified content lenghts.")
-    show_filters.add_argument("--sw-filter", metavar="ws1,ws2...", default="NONE",
-                              help="show responses with the specified web servers.")
-    show_filters.add_argument("--sr-filter", metavar="pattern-regex", default="NONE",
-                              help="show responses matching the specified pattern...")
+    show_filters.add_argument("-ss", "--ss-filter", metavar="", default="", help="show responses with the specified status codes. ex: '200,300,404'")
+    show_filters.add_argument("-sc", "--sc-filter", metavar="", default="", help="show responses with the specified content lenghts. ex: '1234,4321'")
+    show_filters.add_argument("-sw", "--sw-filter", metavar="", default="", help="show responses with the specified web servers. ex: 'apache,fakewebserver")
+    show_filters.add_argument("-sr", "--sr-filter", metavar="", default="", help="show responses matching the specified pattern. ex: 'authentication failed'")
 
     hide_filters = filters.add_mutually_exclusive_group()
-    hide_filters.add_argument("--hs-filter", metavar="nnn,nnn...", default="NONE",
-                              help="hide responses with the specified status codes.")
-    hide_filters.add_argument("--hc-filter", metavar="nnn,nnn...", default="NONE",
-                              help="hide responses with the specified content lenghts. example[nnn,nnnn,n...]")
-    hide_filters.add_argument("--hw-filter", metavar="ws1,ws2...", default="NONE",
-                              help="hide responses with the specified comma separated web servers. example[apache,nginx...]")
-    hide_filters.add_argument("--hr-filter", metavar="pattern-regex", default="NONE",
-                              help="hide responses matching the specified pattern...")    
+    hide_filters.add_argument("-hs", "--hs-filter", metavar="", default="", help="hide responses with the specified status codes. ex: '300,400'")
+    hide_filters.add_argument("-hc", "--hc-filter", metavar="", default="", help="hide responses with the specified content lenghts. ex: '1234,4321'")
+    hide_filters.add_argument("-hw", "--hw-filter", metavar="", default="", help="hide responses with the specified  web servers. ex: 'apache,nginx'")
+    hide_filters.add_argument("-hr", "--hr-filter", metavar="", default="", help="hide responses matching the specified pattern. ex: 'authentication failed'")    
 
     if ("--usage" in argv):
         usage()
 
     parsed_arguments               = parser.parse_args()
+    parsed_arguments.url           = urlparse(parsed_arguments.url)
     parsed_arguments.magic_word    = magic_word
     parsed_arguments.wordlist_path    = parsed_arguments.wordlist.name
     parsed_arguments.body_data     = parse_qs(parsed_arguments.body_data)
+    parsed_arguments.headers       = parse_qs(parsed_arguments.headers)
+    parsed_arguments.cookies       = parse_qs(parsed_arguments.cookies)
 
-    if len(parsed_arguments.proxy) != 0:
+    if len(parsed_arguments.proxies) != 0:
         try:
-            parsed_arguments.proxy = parsed_arguments.proxy.split(",")
-            for i in range(len(parsed_arguments.proxy)):
-                parsed_arguments.proxy[i] = parsed_arguments.proxy[i].split(";")
-            parsed_arguments.proxy = dict(parsed_arguments.proxy)
+            parsed_arguments.proxies = parsed_arguments.proxies.split(",")
+            for i in range(len(parsed_arguments.proxies)):
+                parsed_arguments.proxies[i] = parsed_arguments.proxies[i].split(";")
+            parsed_arguments.proxies = dict(parsed_arguments.proxies)
         except:
-            raise Exception(" Invalid proxy ")
+            raise Exception(" Invalid proxies ")
 
     parsed_arguments.ss_filter     = parsed_arguments.ss_filter.split(",")
     parsed_arguments.sc_filter     = parsed_arguments.sc_filter.split(",")
@@ -122,36 +113,35 @@ def parse_arguments():
 def usage():
     """ Only show ussage messages """
     target   = "https://google.com/"
-    magic    = "#FUZZ#"
+    magic    = "@FUZZ@"
     wordlist = "wordlist.txt"
-    proxy    = "http;http://localhost:8080,https;http://localhost:8000"
+    proxies    = "http;http://localhost:8080,https;http://localhost:8000"
     
-    print("### BASIC dir enumeration with webFuzzer")
-    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --wordlist {wordlist} {target}{magic}\n")
-    print("### BASIC parameter testing with GET METHOD")
-    print(f"$ python3 webFuzzer.py --http-method GET --ss-filter 200 --wordlist {wordlist} {target}script.php?param1={magic}\n")
-    print("### Fuzz post data ")
-    print(f"$ python3 webFuzzer.py --http-method POST --hr-filter 'alert=1' --wordlist {wordlist} --body-data 'username=juanito&password=#FUZZ#' {target}\n")
+    print("### direcroty enumeration")
+    print(f"$ ./webFuzzer.py -ss 200 -w {wordlist} {target}{magic}\n")
+    print("### parameter testing ")
+    print(f"$ ./webFuzzer.py -ss 200 -w {wordlist} {target}script.php?param1={magic}\n")
+    print("### Fuzzing post body data ")
+    print(f"$ ./webFuzzer.py -M POST -hr 'alert=1' -w {wordlist} -B 'username=admin&password={magic}' {target}login\n")
     print("### using proxies ")
-    print(f"$ python3 webFuzzer.py --http-method GET --proxy {proxy} --wordlist {wordlist} {target}{magic}\n")
+    print(f"$ ./webFuzzer.py -P {proxies} -w {wordlist} {target}{magic}\n")
     exit(0)
 
 def initial_checks(args):
     """ Initial checks before proceeds with the program execution"""
-
     # testing target connection
     try:
-        requests.get(args.url, timeout=5)
+        requests.get(args.url.geturl(), timeout=5)
     except requests.exceptions.ConnectionError:
         print(f"[X] Failed to establish a new connection to {args.url}")
         exit(-1)
 
 def validate_arguments(args):
     # validating url format
-    validate_url(args.url)
+    validate_url(args.url.geturl())
 
     # checking magic_word inside GET request
-    if ((args.http_method == "GET") and (args.magic_word not in args.url)):
+    if ((args.http_method == "GET") and (args.magic_word not in args.url.geturl())):
         raise Exception(f"magic word {args.magic_word} not in the url: {args.url}")
 
     # checking magic_word inside POST request
@@ -167,11 +157,8 @@ def validate_arguments(args):
         
         # if magic word not in body data, then search in url
         if state == False:
-            if args.magic_word not in args.url:
+            if args.magic_word not in args.url.geturl():
                 raise Exception(f" magic word {args.magic_word} not specified in body data neither url")
-
-    # validating port number 
-    validate_port(args.port)
 
     # validating ss_filter (show status code filter)
     if (args.ss_filter[0] != "NONE"):
@@ -201,11 +188,6 @@ def validate_url(url):
     if (validators.url(url) != True):
         raise Exception(f"invalid url: {url}")    
 
-def validate_port(port):
-    if (port not in range(1, 65535)):
-        raise Exception(f"Invalid port number: {port}")    
-
-
 def fuzzing(args):
     class Namespace():
         pass
@@ -214,14 +196,18 @@ def fuzzing(args):
 
     global run_event
     # iterating wordlist
-    word = args.wordlist.readline().strip()
+
+    word = " "
     while word != '':
+        word = args.wordlist.readline()
+        word = quote(word.strip())
+
         # checking if threads should still running
         if run_event.is_set() == False:
             break
         
         # replacing magic word from url
-        new_url = args.url.replace(args.magic_word, word)
+        new_url = args.url.geturl().replace(args.magic_word, word)
 
         # replacing magic word from body data
         body_data = str(args.body_data)
@@ -230,9 +216,13 @@ def fuzzing(args):
 
         try:
             if args.http_method == "GET":
-                req = requests.request("GET", new_url, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
+                req = requests.request("GET", new_url, timeout=int(args.timeout),
+                                       allow_redirects=args.follow, proxies=args.proxies,
+                                       cookies=args.cookies, headers=args.headers)
             elif args.http_method == "POST":
-                req = requests.request(method="POST", url=args.url, data=body_data, timeout=int(args.timeout), allow_redirects=False, proxies=args.proxy)
+                req = requests.request(method="POST", url=new_url, data=body_data,
+                                       timeout=int(args.timeout), allow_redirects=args.follow, proxies=args.proxies,
+                                       cookies=args.cookies, headers=args.headers)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(new_url))
             continue
@@ -253,9 +243,9 @@ def fuzzing(args):
 
             if response_filter(filters, req) == True:
                 if args.http_method == "GET":
-                    print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 elif args.http_method == "POST":
-                    print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue               
 
         if (args.hs_filter[0] != "NONE" or args.hc_filter[0] != "NONE" or args.hw_filter[0] != "NONE" or args.hr_filter != "NONE"):
@@ -266,16 +256,15 @@ def fuzzing(args):
 
             if response_filter(filters, req) == False:
                 if args.http_method == "GET":
-                    print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 elif args.http_method == "POST":
-                    print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue                               
         
         if args.http_method == "GET":
-            print("%-70s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
+            print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
         elif args.http_method == "POST":
-            print("%-70s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")            
-        word = args.wordlist.readline().strip()
+            print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")            
     
     return 0    
 
@@ -283,23 +272,23 @@ def fuzzing(args):
 def response_filter(filters, response):
     filter_status = False
     # show filters
-    if (filters.sc[0] != "NONE"):
+    if (len(filters.sc[0]) > 0):
         # show matching status code filter
         if str(response.status_code) in filters.sc:
             filter_status = True
 
-    elif (filters.cl[0] != "NONE"):
+    elif (len(filters.cl[0]) > 0):
         # show matching content length filter
         if response.headers["Content-Length"] != "UNK":
-            if str(response.content_len) in filters.cl:
+            if str(response.headers["Content-Length"]) in filters.cl:
                 filter_status = True
 
-    elif (filters.ws[0] != "NONE"):
+    elif (len(filters.ws[0]) > 0):
         # show matching web server name filter 
         if response.headers["Server"] in filters.ws:
             filter_status = True
 
-    elif (filters.re != "NONE"):
+    elif (len(filters.re) > 0):
         # show matching pattern filter
         # searching matching patterns in response headers
         matching = False
@@ -320,19 +309,24 @@ def response_filter(filters, response):
 def show_config(args):
     print("==========================================")
     print("[!] General...")
-    print(f"             URL: {args.url}")
+    print(f"          TARGET: {args.url.geturl()}")
     print(f"     HTTP METHOD: {args.http_method}")
     if (args.http_method == "POST"):
         print(f"           BODY DATA: {args.body_data}")
-            
-    print(f"            PORT: {args.port}")
+    if (len(args.cookies) > 0):
+        print(f"             COOKIES: {args.cookies}")
+    if (len(args.headers) > 0):
+        print(f"             HEADERS: {args.headers}")
+    if (len(args.proxies) > 0):
+        print(f"             PROXIES: {args.proxies}")
+    print(f"FOLLOW REDIRECTS: {args.follow}")
     print(f"        WORDLIST: {args.wordlist_path}")
-    print(f"           PROXY: {args.proxy}")
-
     print()
     print("[!] Performance...")
     print(f"         THREADS: {args.threads}")
     print(f"         TIMEOUT: {args.timeout}")
+    print(f"        TIMEWAIT: {args.timewait}")
+    print(f"         RETRIES: {args.retries}")    
     print()
     print("[!] Debugging...")
     print(f"         VERBOSE: {args.verbose}")
@@ -356,7 +350,7 @@ def verbose(state, msg):
 
 def GET(args):
     # header...
-    print("%-70s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))
+    print("%-100s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))
 
     # initializating run_event to stop threads when required
     global run_event
@@ -399,7 +393,7 @@ def GET(args):
 
 def POST(args):
     # header...
-    print("%-70s\t%-3s\t%-10s\t%-10s"%("BODY DATA", "SC", "content_len", "server"))
+    print("%-100s\t%-3s\t%-10s\t%-10s"%("BODY DATA", "SC", "content_len", "server"))
 
     # initializating run_event to stop threads when required
     global run_event
@@ -451,6 +445,7 @@ def main():
     # validating arguments...
     validate_arguments(parsed_arguments)
 
+
     # show user specified CLI args
     show_config(parsed_arguments)    
     sleep(2)
@@ -469,11 +464,7 @@ if __name__ == "__main__":
         print("\n\n\n[!] Keyboard interrupt :: FInishing the program ")
         exit(0)
 
-# agregar opcion para headers
-# agregar opcion para cookies
 # refactorizar algunas funciones
-# si una palabra del diccionario tiene comillas, va a fallar cuando se pasa como body data en POST
-# agregar una opcion para codificar en url las solicitudes o palabras 
-# verificar las configuracions de red al inicio del programa para evitar procesos innecesarios
-# usarl urlparse para manejar las url
-# opcion para permitir o rechazar redirecciones
+# opcion para especificar la cantidad maxima de reintentos por conexion
+# modificar programa para hacer fuzzing a cookies y headers
+# agregar opcion para aleatorizar user-agent
