@@ -14,6 +14,7 @@ from urllib.parse import parse_qs
 from urllib.parse import urlparse
 from urllib.parse import quote
 from ast import literal_eval
+from random import choice as random_choice
 
 def banner():
     text = """
@@ -36,6 +37,8 @@ class ParseKwargs(argparse.Action):
             key, value = value.split('=')
             getattr(namespace, self.dest)[key] = value    
 
+
+
 def parse_arguments():
     # general args
     magic_word = "FUZZ"
@@ -43,7 +46,7 @@ def parse_arguments():
                                      usage="./webFuzzer.py [options] {-w wordlist} url",
                                      description="a simple python multithreading web fuzzer",
                                      epilog="https://github.com/mind2hex/")
-    parser.add_argument("url", help=f"target url. example[http://localhost/{magic_word}]")
+    parser.add_argument("-u", "--url", metavar="", required=True, help=f"target url. example[http://localhost/{magic_word}]")
     parser.add_argument("--usage", action="store_true", help="show usage examples")
     parser.add_argument("-B", "--body-data", metavar="", default={},
                         help=f"specify body data to send using post method. ex: 'username=admin&password={magic_word}'")
@@ -59,9 +62,8 @@ def parse_arguments():
                         help="specify wordlist to use.")
     parser.add_argument("-f", "--follow", action="store_true", default=False,
                         help="follow redirections")
-
-    
-                        
+    parser.add_argument("--random-UA", action="store_true", help="randomize user-agent")
+    parser.add_argument("--user-agent", metavar="", default="webFuzzer", help="specify user agent")
 
     # performance args
     performance = parser.add_argument_group("performance options")
@@ -93,6 +95,8 @@ def parse_arguments():
     if ("--usage" in argv):
         usage()
 
+    
+
     parsed_arguments               = parser.parse_args()
     parsed_arguments.url           = urlparse(parsed_arguments.url)
     parsed_arguments.magic_word    = magic_word
@@ -115,6 +119,32 @@ def parse_arguments():
     parsed_arguments.hc_filter     = parsed_arguments.hc_filter.split(",")
     parsed_arguments.hw_filter     = parsed_arguments.hw_filter.split(",")
 
+    parsed_arguments.UserAgent_wordlist = ['Mozilla/1.22 (compatible; MSIE 2.0d; Windows NT)', 
+                     'Mozilla/2.0 (compatible; MSIE 3.02; Update a; Windows NT)', 
+                     'Mozilla/4.0 (compatible; MSIE 4.01; Windows NT)',
+                     'Mozilla/4.0 (compatible; MSIE 5.5; Windows NT 4.0)', 
+                     'Mozilla/4.79 [en] (WinNT; U)', 
+                     'Mozilla/5.0 (Windows; U; WinNT4.0; en-US; rv:0.9.2) Gecko/20010726 Netscape6/6.1', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.9.0.4) Gecko/2008102920 Firefox/3.0.4', 
+                     'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; .NET CLR 1.1.4322; .NET CLR 2.0.50727; .NET CLR 3.0.04506.30; .NET CLR 3.0.04506.648; .NET CLR 3.5.21022)', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.8.1.19) Gecko/20081204 SeaMonkey/1.1.14', 
+                     'Mozilla/5.0 (SymbianOS/9.2; U; Series60/3.1 NokiaE90-1/210.34.75 Profile/MIDP-2.0 Configuration/CLDC-1.1 ) AppleWebKit/413 (KHTML, like Gecko) Safari/413', 
+                     'Mozilla/5.0 (iPhone; U; CPU iPhone OS 2_2 like Mac OS X; en-us) AppleWebKit/525.18.1 (KHTML, like Gecko) Version/3.1.1 Mobile/5G77 Safari/525.20', 
+                     'Mozilla/5.0 (Linux; U; Android 1.5; en-gb; HTC Magic Build/CRB17) AppleWebKit/528.5+ (KHTML, like Gecko) Version/3.1.2 Mobile Safari/525.20.1', 
+                     'Opera/9.27 (Windows NT 5.1; U; en)', 'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/525.27.1 (KHTML, like Gecko) Version/3.2.1 Safari/525.27.1', 
+                     'Mozilla/4.0 (compatible; MSIE 8.0; Windows NT 5.1; Trident/4.0; .NET CLR 2.0.50727; .NET CLR 3.0.4506.2152; .NET CLR 3.5.30729; .NET CLR 1.0.3705; .NET CLR 1.1.4322)', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/525.19 (KHTML, like Gecko) Chrome/0.4.154.25 Safari/525.19', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US) AppleWebKit/525.19 (KHTML, like Gecko) Chrome/1.0.154.48 Safari/525.19', 
+                     'Wget/1.8.2', 'Mozilla/5.0 (PLAYSTATION 3; 1.00)', 
+                     'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 5.1; (R1 1.6))', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 5.1; en-GB; rv:1.8.1.1) Gecko/20061204 Firefox/2.0.0.1', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 6.0; en-GB; rv:1.9.0.10) Gecko/2009042316 Firefox/3.0.10 (.NET CLR 3.5.30729) JBroFuzz/1.4', 
+                     'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; SLCC1; .NET CLR 2.0.50727; Media Center PC 5.0; .NET CLR 3.0.04506)', 
+                     'Mozilla/5.0 (X11; U; Linux i686; en-US; rv:1.7.12) Gecko/20050923 CentOS/1.0.7-1.4.1.centos4 Firefox/1.0.7', 
+                     'Mozilla/4.0 (compatible; MSIE 7.0; Windows NT 6.0; SLCC1; .NET CLR 2.0.50727)', 
+                     'Mozilla/5.0 (Windows; U; Windows NT 6.0; en-GB; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5', 
+                     'Mozilla/5.0 (X11; U; SunOS i86pc; en-US; rv:1.7) Gecko/20070606', 'Mozilla/5.0 (X11; U; SunOS i86pc; en-US; rv:1.8.1.14) Gecko/20080520 Firefox/2.0.0.14', 
+                     'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.5; en-US; rv:1.9.0.5) Gecko/2008120121 Firefox/3.0.5']        
 
     return parsed_arguments
 
@@ -221,6 +251,11 @@ def fuzzing(args):
         headers = str(args.headers)
         headers = headers.replace(args.magic_word, word)
         headers = literal_eval(headers)
+
+        headers.setdefault("User-Agent", args.user_agent)
+
+        if (args.random_UA == True):
+            headers["User-Agent"] = random_choice(args.UserAgent_wordlist)
 
         # replacing magic word from cookies
         cookies = str(args.cookies)
@@ -337,6 +372,8 @@ def show_config(args):
         print(f"             HEADERS: {args.headers}")
     if (len(args.proxies) > 0):
         print(f"             PROXIES: {args.proxies}")
+    print(f"      USER AGENT: {args.user_agent}")
+    print(f" RAND USER AGENT: {args.random_UA}")
     print(f"FOLLOW REDIRECTS: {args.follow}")
     print(f"        WORDLIST: {args.wordlist_path}")
     print()
