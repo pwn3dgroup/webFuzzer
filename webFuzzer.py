@@ -29,9 +29,16 @@ def banner():
     """
     print(text)
 
+class ParseKwargs(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, dict())
+        for value in values:
+            key, value = value.split('=')
+            getattr(namespace, self.dest)[key] = value    
+
 def parse_arguments():
     # general args
-    magic_word = "@FUZZ@"
+    magic_word = "FUZZ"
     parser = argparse.ArgumentParser(prog="./webFuzzer.py",
                                      usage="./webFuzzer.py [options] {-w wordlist} url",
                                      description="a simple python multithreading web fuzzer",
@@ -40,9 +47,9 @@ def parse_arguments():
     parser.add_argument("--usage", action="store_true", help="show usage examples")
     parser.add_argument("-B", "--body-data", metavar="", default={},
                         help=f"specify body data to send using post method. ex: 'username=admin&password={magic_word}'")
-    parser.add_argument("-C", "--cookies", metavar="", default={},
+    parser.add_argument("-C", "--cookies", metavar="",  default={}, nargs='*', action=ParseKwargs,
                         help="specify cookies in url param format. ex: 'Cookie1=lol&Cookie2=lol'")
-    parser.add_argument("-H", "--headers", metavar="", default={},
+    parser.add_argument("-H", "--headers", metavar="", default={}, nargs='*', action=ParseKwargs,
                         help="specify http headers in url param format. ex: 'Header1=lol&Header2=lol'")    
     parser.add_argument("-M", "--http-method", metavar="", choices=["GET", "POST"], default="GET",
                         help="specify http method to use. [GET|POST] default[GET]")
@@ -52,6 +59,8 @@ def parse_arguments():
                         help="specify wordlist to use.")
     parser.add_argument("-f", "--follow", action="store_true", default=False,
                         help="follow redirections")
+
+    
                         
 
     # performance args
@@ -89,8 +98,6 @@ def parse_arguments():
     parsed_arguments.magic_word    = magic_word
     parsed_arguments.wordlist_path    = parsed_arguments.wordlist.name
     parsed_arguments.body_data     = parse_qs(parsed_arguments.body_data)
-    parsed_arguments.headers       = parse_qs(parsed_arguments.headers)
-    parsed_arguments.cookies       = parse_qs(parsed_arguments.cookies)
 
     if len(parsed_arguments.proxies) != 0:
         try:
@@ -106,7 +113,8 @@ def parse_arguments():
     parsed_arguments.sw_filter     = parsed_arguments.sw_filter.split(",")
     parsed_arguments.hs_filter     = parsed_arguments.hs_filter.split(",")
     parsed_arguments.hc_filter     = parsed_arguments.hc_filter.split(",")
-    parsed_arguments.hw_filter     = parsed_arguments.hw_filter.split(",")    
+    parsed_arguments.hw_filter     = parsed_arguments.hw_filter.split(",")
+
 
     return parsed_arguments
 
@@ -209,6 +217,16 @@ def fuzzing(args):
         # replacing magic word from url
         new_url = args.url.geturl().replace(args.magic_word, word)
 
+        # replacing magic word from headers
+        headers = str(args.headers)
+        headers = headers.replace(args.magic_word, word)
+        headers = literal_eval(headers)
+
+        # replacing magic word from cookies
+        cookies = str(args.cookies)
+        cookies = cookies.replace(args.magic_word, word)
+        cookies = literal_eval(cookies)
+
         # replacing magic word from body data
         body_data = str(args.body_data)
         body_data = body_data.replace(args.magic_word, word)
@@ -218,11 +236,11 @@ def fuzzing(args):
             if args.http_method == "GET":
                 req = requests.request("GET", new_url, timeout=int(args.timeout),
                                        allow_redirects=args.follow, proxies=args.proxies,
-                                       cookies=args.cookies, headers=args.headers)
+                                       cookies=cookies, headers=headers)
             elif args.http_method == "POST":
                 req = requests.request(method="POST", url=new_url, data=body_data,
                                        timeout=int(args.timeout), allow_redirects=args.follow, proxies=args.proxies,
-                                       cookies=args.cookies, headers=args.headers)
+                                       cookies=cookies, headers=headers)
         except requests.ConnectTimeout:
             print("[!] Connection Time Out: %-100s"%(new_url))
             continue
@@ -468,3 +486,4 @@ if __name__ == "__main__":
 # opcion para especificar la cantidad maxima de reintentos por conexion
 # modificar programa para hacer fuzzing a cookies y headers
 # agregar opcion para aleatorizar user-agent
+# agregar opcion para basic auth 
