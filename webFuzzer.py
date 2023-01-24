@@ -95,8 +95,6 @@ def parse_arguments():
     if ("--usage" in argv):
         usage()
 
-    
-
     parsed_arguments               = parser.parse_args()
     parsed_arguments.url           = urlparse(parsed_arguments.url)
     parsed_arguments.magic_word    = magic_word
@@ -152,17 +150,20 @@ def usage():
     """ Only show ussage messages """
     target   = "https://google.com/"
     magic    = "@FUZZ@"
-    wordlist = "wordlist.txt"
+    wordlist = "/path/wordlist.txt"
     proxies    = "http;http://localhost:8080,https;http://localhost:8000"
     
-    print("### direcroty enumeration")
-    print(f"$ ./webFuzzer.py -ss 200 -w {wordlist} {target}{magic}\n")
+    print("### directory enumeration")
+    print(f"$ python3 webFuzzer.py -ss 200,300 -w {wordlist} -u {target}{magic}\n")
     print("### parameter testing ")
-    print(f"$ ./webFuzzer.py -ss 200 -w {wordlist} {target}script.php?param1={magic}\n")
-    print("### Fuzzing post body data ")
-    print(f"$ ./webFuzzer.py -M POST -hr 'alert=1' -w {wordlist} -B 'username=admin&password={magic}' {target}login\n")
+    print(f"$ python3 webFuzzer.py -ss 200 -w {wordlist} -u {target}script.php?param1={magic}\n")
+    print("### Fuzzing post body data [bruteforce attack]")
+    print(f"$ python3 webFuzzer.py -M POST -hr 'alert=1' -w {wordlist} -B 'username=admin&password={magic}' -u {target}login\n")
     print("### using proxies ")
-    print(f"$ ./webFuzzer.py -P {proxies} -w {wordlist} {target}{magic}\n")
+    print(f"$ python3 webFuzzer.py -P {proxies} -w {wordlist} -u {target}{magic}\n")
+    print("### specifying user agent and cookie ")
+    print(f"$ python3 webFuzzer.py --user-agent FirefoxBOT -C cookie=monster cookie2=monster2 -w {wordlist} -u {target}{magic}\n")
+
     exit(0)
 
 def initial_checks(args):
@@ -521,6 +522,4 @@ if __name__ == "__main__":
 
 # refactorizar algunas funciones
 # opcion para especificar la cantidad maxima de reintentos por conexion
-# modificar programa para hacer fuzzing a cookies y headers
-# agregar opcion para aleatorizar user-agent
 # agregar opcion para basic auth 
