@@ -238,9 +238,12 @@ def fuzzing(args):
     # iterating wordlist
 
     word = " "
+    retry_counter = 0    
     while word != '':
-        word = args.wordlist.readline()
-        word = quote(word.strip())
+        # iterating to next word only when retry_counter = 0 
+        if retry_counter == 0:
+            word = args.wordlist.readline()
+            word = quote(word.strip())
 
         # checking if threads should still running
         if run_event.is_set() == False:
@@ -254,8 +257,10 @@ def fuzzing(args):
         headers = headers.replace(args.magic_word, word)
         headers = literal_eval(headers)
 
+        # setting user_agent if not specified
         headers.setdefault("User-Agent", args.user_agent)
 
+        # random user agent
         if (args.random_UA == True):
             headers["User-Agent"] = random_choice(args.UserAgent_wordlist)
 
@@ -278,13 +283,21 @@ def fuzzing(args):
                 req = requests.request(method="POST", url=new_url, data=body_data,
                                        timeout=int(args.timeout), allow_redirects=args.follow, proxies=args.proxies,
                                        cookies=cookies, headers=headers)
-        except requests.ConnectTimeout:
-            print("[!] Connection Time Out: %-100s"%(new_url))
-            continue
-        except socket.error:
-            print("[!] Error stablishing connection, finishing program...")
+        except (socket.error, requests.ConnectTimeout):
+            if args.http_method == "GET":
+                print(f"[!] Error stablishing connection at {new_url}", end="")
+            else:
+                print(f"[!] Error stablishing connection to {body_data}", end="")
+
+            if (retry_counter < args.retries):
+                retry_counter += 1
+                print(f" // Retrying connection {retry_counter}")
+                continue
+            print()
             run_event.clear()
             exit(0)
+
+        retry_counter = 0
 
         # in case server didnt send back content length and server info            
         req.headers.setdefault("Content-Length", "UNK")
@@ -339,6 +352,10 @@ def fuzzing(args):
         elif args.http_method == "POST":
             print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")            
     
+
+    # timewait 
+    sleep(args.timewait)
+
     return 0    
 
 
@@ -474,7 +491,6 @@ def main():
     # validating arguments...
     validate_arguments(parsed_arguments)
 
-
     # show user specified CLI args
     show_config(parsed_arguments)    
     sleep(2)
@@ -495,5 +511,4 @@ if __name__ == "__main__":
         exit(0)
 
 # refactorizar algunas funciones
-# opcion para especificar la cantidad maxima de reintentos por conexion
 # agregar opcion para basic auth 
