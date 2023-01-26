@@ -16,6 +16,7 @@ from urllib.parse import quote
 from ast import literal_eval
 from random import choice as random_choice
 
+
 def banner():
     text = """
                _     ______                      
@@ -31,12 +32,12 @@ def banner():
     print(text)
 
 class ParseKwargs(argparse.Action):
+    """this class is used to convert an argument directly into a dict using the format key=value"""
     def __call__(self, parser, namespace, values, option_string=None):
         setattr(namespace, self.dest, dict())
         for value in values:
             key, value = value.split('=')
             getattr(namespace, self.dest)[key] = value    
-
 
 
 def parse_arguments():
@@ -81,16 +82,16 @@ def parse_arguments():
     # filter args
     filters = parser.add_argument_group("filter options")
     show_filters = filters.add_mutually_exclusive_group()
-    show_filters.add_argument("-ss", "--ss-filter", metavar="", default="", help="show responses with the specified status codes. ex: '200,300,404'")
-    show_filters.add_argument("-sc", "--sc-filter", metavar="", default="", help="show responses with the specified content lenghts. ex: '1234,4321'")
-    show_filters.add_argument("-sw", "--sw-filter", metavar="", default="", help="show responses with the specified web servers. ex: 'apache,fakewebserver")
-    show_filters.add_argument("-sr", "--sr-filter", metavar="", default="", help="show responses matching the specified pattern. ex: 'authentication failed'")
+    show_filters.add_argument("-ss", "--ss-filter", metavar="", default="None", help="show responses with the specified status codes. ex: '200,300,404'")
+    show_filters.add_argument("-sc", "--sc-filter", metavar="", default="None", help="show responses with the specified content lenghts. ex: '1234,4321'")
+    show_filters.add_argument("-sw", "--sw-filter", metavar="", default="None", help="show responses with the specified web servers. ex: 'apache,fakewebserver")
+    show_filters.add_argument("-sr", "--sr-filter", metavar="", default="None", help="show responses matching the specified pattern. ex: 'authentication failed'")
 
     hide_filters = filters.add_mutually_exclusive_group()
-    hide_filters.add_argument("-hs", "--hs-filter", metavar="", default="", help="hide responses with the specified status codes. ex: '300,400'")
-    hide_filters.add_argument("-hc", "--hc-filter", metavar="", default="", help="hide responses with the specified content lenghts. ex: '1234,4321'")
-    hide_filters.add_argument("-hw", "--hw-filter", metavar="", default="", help="hide responses with the specified  web servers. ex: 'apache,nginx'")
-    hide_filters.add_argument("-hr", "--hr-filter", metavar="", default="", help="hide responses matching the specified pattern. ex: 'authentication failed'")    
+    hide_filters.add_argument("-hs", "--hs-filter", metavar="", default="None", help="hide responses with the specified status codes. ex: '300,400'")
+    hide_filters.add_argument("-hc", "--hc-filter", metavar="", default="None", help="hide responses with the specified content lenghts. ex: '1234,4321'")
+    hide_filters.add_argument("-hw", "--hw-filter", metavar="", default="None", help="hide responses with the specified  web servers. ex: 'apache,nginx'")
+    hide_filters.add_argument("-hr", "--hr-filter", metavar="", default="None", help="hide responses matching the specified pattern. ex: 'authentication failed'")    
 
     if ("--usage" in argv):
         usage()
@@ -143,7 +144,7 @@ def parse_arguments():
                      'Mozilla/5.0 (Windows; U; Windows NT 6.0; en-GB; rv:1.9.0.5) Gecko/2008120122 Firefox/3.0.5', 
                      'Mozilla/5.0 (X11; U; SunOS i86pc; en-US; rv:1.7) Gecko/20070606', 'Mozilla/5.0 (X11; U; SunOS i86pc; en-US; rv:1.8.1.14) Gecko/20080520 Firefox/2.0.0.14', 
                      'Mozilla/5.0 (Macintosh; U; Intel Mac OS X 10.5; en-US; rv:1.9.0.5) Gecko/2008120121 Firefox/3.0.5']        
-
+    
     return parsed_arguments
 
 def usage():
@@ -200,25 +201,25 @@ def validate_arguments(args):
                 raise Exception(f" magic word {args.magic_word} not specified in body data neither url")
 
     # validating ss_filter (show status code filter)
-    if (args.ss_filter[0] != "NONE"):
+    if (args.ss_filter[0] != "None"):
         for status_code in args.ss_filter:
             if status_code.isdigit == False:
                 raise Exception(f" incorrect ss_filter value {status_code}")
 
     # validating sc_filter (show content length filter)
-    if (args.sc_filter[0] != "NONE"):
+    if (args.sc_filter[0] != "None"):
         for content_length in args.sc_filter:
             if content_length.isdigit == False:
                 raise Exception(f" incorrect sc_filter value {content_length}")
 
     # validating hs-filter (hide status code filter)
-    if (args.hs_filter[0] != "NONE"):
+    if (args.hs_filter[0] != "None"):
         for status_code in args.hs_filter:
             if status_code.isdigit == False:
                 raise Exception(f" incorrect hs_filter value {status_code}")
 
     # validating sc-filter (hide content length filter)
-    if (args.hc_filter[0] != "NONE"):
+    if (args.hc_filter[0] != "None"):
         for content_length in args.hc_filter:
             if content_length.isdigit == False:
                 raise Exception(f" incorrect hc_filter value {content_length}")
@@ -289,30 +290,48 @@ def fuzzing(args):
         req.headers.setdefault("Content-Length", "UNK")
         req.headers.setdefault("Server",         "UNK")
 
-        if (args.ss_filter[0] != "NONE" or args.sc_filter[0] != "NONE" or args.sw_filter[0] != "NONE" or args.sr_filter != "NONE"):
+        # using show filters
+        if (args.ss_filter[0] != "None" or args.sc_filter[0] != "NOne" or args.sw_filter[0] != "None" or args.sr_filter != "None"):
             filters.sc = args.ss_filter
             filters.cl = args.sc_filter
             filters.ws = args.sw_filter
             filters.re = args.sr_filter
-
             if response_filter(filters, req) == True:
                 if args.http_method == "GET":
                     print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
+                    # saving output if specified
+                    if args.output != None:
+                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
                 elif args.http_method == "POST":
                     print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
+                    # saving output if specified
+                    if args.output != None:
+                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
                 continue               
 
-        if (args.hs_filter[0] != "NONE" or args.hc_filter[0] != "NONE" or args.hw_filter[0] != "NONE" or args.hr_filter != "NONE"):
+        if (args.hs_filter[0] != "None" or args.hc_filter[0] != "None" or args.hw_filter[0] != "None" or args.hr_filter != "None"):
             filters.sc = args.hs_filter
             filters.cl = args.hc_filter
             filters.ws = args.hw_filter
             filters.re = args.hr_filter
-
+            
             if response_filter(filters, req) == False:
                 if args.http_method == "GET":
                     print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
+                    # saving output if specified
+                    if args.output != None:
+                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s\n"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
                 elif args.http_method == "POST":
                     print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+
+                    # saving output if specified
+                    if args.output != None:
+                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s\n"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))                    
                 continue                               
         
         if args.http_method == "GET":
@@ -404,16 +423,13 @@ def verbose(state, msg):
     if state == True:
         print("[!] verbose:", msg)
 
-def GET(args):
-    # header...
-    print("%-100s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))
-
+def thread_starter(args):
     # initializating run_event to stop threads when required
     global run_event
     run_event = threading.Event()
     run_event.set()
 
-    # inserting threads in a list
+    # creating thread lists
     thread_list = []
     
     for thread in range(0, args.threads):
@@ -423,48 +439,6 @@ def GET(args):
     for thread in thread_list:
         thread.start()
     
-    exit_msg = ""
-    try:
-        # if a thread clean run_event variable, that means a error has happened
-        # for that reason, all threads must stop and the program itself should stop too
-        while run_event.is_set() and threading.active_count() > 1:
-            sleep(1)
-
-        exit_msg = "[!] program successfully finished "
-        
-    except KeyboardInterrupt:
-        # to stop threads, run_event should be clear()
-        run_event.clear()
-            
-        exit_msg = "[!] threads successfully closed \n"
-        exit_msg += "[!] KeyboardInterrupt: Program finished by user..."
-
-    finally:
-        # finishing threads
-        for thread in thread_list:
-            thread.join()
-
-        print(exit_msg)
-
-
-def POST(args):
-    # header...
-    print("%-100s\t%-3s\t%-10s\t%-10s"%("BODY DATA", "SC", "content_len", "server"))
-
-    # initializating run_event to stop threads when required
-    global run_event
-    run_event = threading.Event()
-    run_event.set()
-
-    # inserting threads in a list
-    thread_list = []
-    for thread in range(0, args.threads):
-        thread_list.append(threading.Thread(target=fuzzing, args=[args]))
-
-    # starting threads
-    for thread in thread_list:
-        thread.start()
-        
     exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
@@ -488,7 +462,6 @@ def POST(args):
 
         print(exit_msg)    
 
-        
 def main():
     banner()
     
@@ -507,11 +480,12 @@ def main():
     sleep(2)
 
     if parsed_arguments.http_method == "GET":
-        GET(parsed_arguments)
+        print("%-100s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))        
+        thread_starter(parsed_arguments)
 
     elif parsed_arguments.http_method == "POST":
-        POST(parsed_arguments)
-
+        print("%-100s\t%-3s\t%-10s\t%-10s"%("BODY DATA", "SC", "content_len", "server"))        
+        thread_starter(parsed_arguments)
 
 if __name__ == "__main__":
     try:
