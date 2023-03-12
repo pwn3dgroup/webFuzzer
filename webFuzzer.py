@@ -147,7 +147,7 @@ def parse_arguments():
 def usage():
     """ Only show ussage messages """
     target   = "https://google.com/"
-    magic    = "@FUZZ@"
+    magic    = "FUZZ"
     wordlist = "/path/wordlist.txt"
     proxies  = "http;http://localhost:8080,https;http://localhost:8000"
 
@@ -572,3 +572,4 @@ if __name__ == "__main__":
 #     mismo con los headers.                                                                                                                                                                                                                 
 #   - Implementar codificadores para los payloads   
 #   - actualizar usage()
+#   - si la ventana reduce su tamano, el formato de salida se va a estropear.

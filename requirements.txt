@@ -1,2 +1,4 @@
 requests
 validators
+urllib3
+django
