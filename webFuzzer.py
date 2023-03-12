@@ -9,7 +9,6 @@ import socket
 import re
 from time import sleep
 from sys import argv
-from urllib.parse import urlparse
 from urllib.parse import quote
 from ast import literal_eval
 from random import choice as random_choice
@@ -556,20 +555,21 @@ if __name__ == "__main__":
         print("\n\n\n[!] Keyboard interrupt :: FInishing the program ")
         exit(0)
 
-# refactorizar algunas funciones
-# agregar opcion para basic auth 
-# para arreglar                                     
+##  FUNCIONALIDADES PARA AGREGAR
+#   - Auto update usando git
+#   - Progress Bar
+#   - Basic Auth 
+#   - Codificadores para los payloads
+
+##  ERRORES O BUGS PARA CORREGIR
 #   - refactorizar algunas funciones                                                                                                                                                                                                         
-#   - agregar opcion para basic auth                                                                                                                                                                                                         
-#   - Si no se especifica retries al primer fallo, o error de conexion, el programa va a terminarse                                                                                                                                          
-#   - agregar barra de carga                                                                                                                                                                                                                 
+#   - Si no se especifica retries, al primer fallo, o error de conexion, el programa va a terminarse                                                                                                                                          
 #   - al comparar el resultado con otras herramientas como gobuster, webFuzzer muestra resultados diferentes.                                                                                                                                
 #   - mejorar un poco el output                                                                                                                                                                                                              
 #   - cuando se va a realizar un FUZZing de cookies usando el metodo GET sin especificar la palabra FUZZ en la url                                                                                                                           
 #     el prorama                                                                                                                                                                                                                             
-#   - Si estoy haciendo un fuzzing de cookies o header... como putas me doy cuenta que payload se esta usando...                                                                                                                             
-#     osea, debo encontrar una forma de mostrar los cookies cuando estoy haciendo un fuzzing de cookies y lo                                                                                                                                 
+#   - Si estoy haciendo un fuzzing de cookies o header... como m****a me doy cuenta que payload se esta usando...                                                                                                                             
+#     debo encontrar una forma de mostrar los cookies cuando estoy haciendo un fuzzing de cookies y lo                                                                                                                                 
 #     mismo con los headers.                                                                                                                                                                                                                 
-#   - Implementar codificadores para los payloads   
 #   - actualizar usage()
 #   - si la ventana reduce su tamano, el formato de salida se va a estropear.
