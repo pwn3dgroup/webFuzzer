@@ -13,6 +13,8 @@ from urllib.parse import quote
 from ast import literal_eval
 from random import choice as random_choice
 from django.core.validators import URLValidator
+from alive_progress import alive_bar
+from itertools import count
 
 
 def banner():
@@ -105,15 +107,24 @@ def parse_arguments():
     hide_filters.add_argument("-hw", "--hw-filter", metavar="", default="None", help="hide responses with the specified  web servers. ex: 'apache,nginx'")
     hide_filters.add_argument("-hr", "--hr-filter", metavar="", default="None", help="hide responses matching the specified pattern. ex: 'authentication failed'")    
 
-    parsed_arguments               = parser.parse_args()
+    parsed_arguments               = parser.parse_args()        
     parsed_arguments.magic_word    = magic_word
+
+    # parsing wordlist and total requests
     parsed_arguments.wordlist_path = parsed_arguments.wordlist.name
+    parsed_arguments.request_count = 0
+    with open(parsed_arguments.wordlist_path, 'r', encoding="latin-1") as f:
+        parsed_arguments.request_total = sum(1 for _ in f)        
+
+    # parsing filters
     parsed_arguments.ss_filter     = parsed_arguments.ss_filter.split(",")
     parsed_arguments.sc_filter     = parsed_arguments.sc_filter.split(",")
     parsed_arguments.sw_filter     = parsed_arguments.sw_filter.split(",")
     parsed_arguments.hs_filter     = parsed_arguments.hs_filter.split(",")
     parsed_arguments.hc_filter     = parsed_arguments.hc_filter.split(",")
     parsed_arguments.hw_filter     = parsed_arguments.hw_filter.split(",")
+
+    # parsing user agents
     parsed_arguments.UserAgent_wordlist = ['Mozilla/1.22 (compatible; MSIE 2.0d; Windows NT)', 
                      'Mozilla/2.0 (compatible; MSIE 3.02; Update a; Windows NT)', 
                      'Mozilla/4.0 (compatible; MSIE 4.01; Windows NT)',
@@ -190,7 +201,6 @@ def initial_checks(args):
 
         if ((args.magic_word not in args.url) and (args.magic_word not in args.body_data)):
             show_error("magic word {args.magic_word} not in the url neither body data", "initial_checks()")
-
 
 def validate_arguments(args):
     """ validate_arguments checks that every argument is valid or in the correct format """
@@ -274,6 +284,20 @@ def show_error(msg, origin):
     print(f" [X] {msg}")
     exit(-1)
 
+def prog_bar(args):
+    global run_event
+
+    with alive_bar(args.request_total) as bar:
+        while args.request_count < args.request_total:
+
+            # stop thread if run_event not set
+            if run_event.is_set() == False:
+                break
+            
+            increment = args.request_count - bar.current
+            bar(increment)
+            sleep(0.01)
+
 def fuzzing(args):
     class Namespace():
         pass
@@ -281,11 +305,11 @@ def fuzzing(args):
     filters = Namespace()
 
     global run_event
-    # iterating wordlist
 
     word = " "
     retry_counter = 0    
-    while word != '':
+    
+    while True:
         # iterating to next word only when retry_counter = 0 
         if retry_counter == 0:
             word = args.wordlist.readline()
@@ -294,6 +318,15 @@ def fuzzing(args):
         # checking if threads should still running
         if run_event.is_set() == False:
             break
+
+        # checking if thread exceeded total requests
+        if args.request_count >= args.request_total:
+            break
+
+        # ignoring empty lines
+        if word == "":
+            args.request_count += 1
+            continue
         
         # replacing magic word from url
         new_url = args.url.replace(args.magic_word, word)
@@ -319,6 +352,18 @@ def fuzzing(args):
         if args.http_method == "POST":
             body_data = args.body_data
             body_data = body_data.replace(args.magic_word, word)
+
+        # forming payload
+        payload = ""
+        if args.magic_word in args.url:
+            payload = payload + new_url + " - "
+        if args.magic_word in str(args.headers):
+            payload = payload + str(headers) + " - "
+        if args.magic_word in str(args.cookies):
+            payload = payload + str(cookies) + " - "
+        if args.magic_word in str(args.body_data):
+            payload = payload + body_data + " - "
+
 
         try:
             if args.http_method == "GET":
@@ -356,21 +401,13 @@ def fuzzing(args):
             filters.ws = args.sw_filter
             filters.re = args.sr_filter
             if response_filter(filters, req) == True:
-                if args.http_method == "GET":
-                    print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                    # saving output if specified
-                    if args.output != None:
-                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                elif args.http_method == "POST":
-                    print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                    # saving output if specified
-                    if args.output != None:
-                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                print("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                if args.output != None:
+                    args.output.write("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    
                 continue               
-
+        
+        # using hide filters
         if (args.hs_filter[0] != "None" or args.hc_filter[0] != "None" or args.hw_filter[0] != "None" or args.hr_filter != "None"):
             filters.sc = args.hs_filter
             filters.cl = args.hc_filter
@@ -378,29 +415,17 @@ def fuzzing(args):
             filters.re = args.hr_filter
             
             if response_filter(filters, req) == False:
-                if args.http_method == "GET":
-                    print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                    # saving output if specified
-                    if args.output != None:
-                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s\n"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                elif args.http_method == "POST":
-                    print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))
-
-                    # saving output if specified
-                    if args.output != None:
-                        args.output.write("%-100s\t%-3s\t%-10s\t%-10s\n"%(str(body_data), req.status_code, req.headers["Content-Length"], req.headers["Server"]))                    
+                print("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                if args.output != None:
+                    args.output.write("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))                
+                    
                 continue                               
         
-        if args.http_method == "GET":
-            print("%-100s\t%-3s\t%-10s\t%-10s"%(new_url, req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")
-        elif args.http_method == "POST":
-            print("%-100s\t%-3s\t%-10s\t%-10s"%(str(body_data)[0:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]), end="\r")            
-    
+        args.request_count += 1
 
-    # timewait 
-    sleep(args.timewait)
+        # timewait 
+        sleep(args.timewait)
+        
 
     return 0    
 
@@ -487,30 +512,31 @@ def verbose(state, msg):
     if state == True:
         print("[!] verbose:", msg)
 
+
 def thread_starter(args):
     # initializating run_event to stop threads when required
     global run_event
     run_event = threading.Event()
     run_event.set()
-
+    
     # creating thread lists
     thread_list = []
-    
+    thread_list.append(threading.Thread(target=prog_bar, args=[args]))
     for thread in range(0, args.threads):
         thread_list.append(threading.Thread(target=fuzzing, args=[args]))
 
     # starting threads
     for thread in thread_list:
         thread.start()
-    
+        
     exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
         # for that reason, all threads must stop and the program itself should stop too
         while run_event.is_set() and threading.active_count() > 1:
             sleep(1)
-
-        exit_msg = "[!] program successfully finished "
+        
+        exit_msg = "[!] program finished "
         
     except KeyboardInterrupt:
         # to stop threads, run_event should be clear()
@@ -540,13 +566,8 @@ def main():
 
     show_config(parsed_arguments)    
 
-    if parsed_arguments.http_method == "GET":
-        print("%-100s\t%-3s\t%-10s\t%-10s"%("URL", "SC", "content_len", "server"))        
-        thread_starter(parsed_arguments)
+    thread_starter(parsed_arguments)
 
-    elif parsed_arguments.http_method == "POST":
-        print("%-100s\t%-3s\t%-10s\t%-10s"%("BODY DATA", "SC", "content_len", "server"))        
-        thread_starter(parsed_arguments)
 
 if __name__ == "__main__":
     try:
@@ -556,8 +577,9 @@ if __name__ == "__main__":
         exit(0)
 
 ##  FUNCIONALIDADES PARA AGREGAR
-#   - Auto update usando git
 #   - Progress Bar
+#   - colored output
+#   - Auto update usando git
 #   - Basic Auth 
 #   - Codificadores para los payloads
 
