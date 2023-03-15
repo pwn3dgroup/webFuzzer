@@ -2,4 +2,4 @@ requests
 validators
 urllib3
 django
-alive_
+alive_progress

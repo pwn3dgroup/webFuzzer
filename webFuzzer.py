@@ -9,6 +9,7 @@ import socket
 import re
 from time import sleep
 from sys import argv
+from urllib.parse import urlparse
 from urllib.parse import quote
 from ast import literal_eval
 from random import choice as random_choice
@@ -85,6 +86,7 @@ def parse_arguments():
     parser.add_argument("-f", "--follow",    action="store_true", default=False, help="follow redirections")
     parser.add_argument("--rand-user-agent", action="store_true", help="randomize user-agent")
     parser.add_argument("--usage",           action="store_true", help="show usage examples")    
+    parser.add_argument("--ignore-errors",   action="store_true", help="ignore connection errors, useful to enumerate fuzz subdomains")
     
     # performance args
     performance = parser.add_argument_group("performance options")
@@ -443,6 +445,11 @@ def fuzzing(args):
                                        cookies=cookies, headers=headers)
         except (socket.error, requests.ConnectTimeout):
 
+            if args.ignore_errors == True:
+                args.request_count += 1
+                bar()
+                continue
+
             if (retry_counter < args.retries):
                 retry_counter += 1
                 print(f" {bcolors.WARNING}// Retrying connection PAYLOAD[{payload}] retries[{retry_counter}] {bcolors.ENDC}")
@@ -608,7 +615,7 @@ def main():
     
     validate_arguments(parsed_arguments)    
 
-    initial_checks(parsed_arguments)
+    #initial_checks(parsed_arguments)
 
     if (parsed_arguments.quiet == False):
         show_config(parsed_arguments)    
@@ -626,6 +633,8 @@ if __name__ == "__main__":
 ##  FUNCIONALIDADES PARA AGREGAR
 #   - Basic Auth 
 #   - Codificadores para los payloads
+#   - agregar opcion para ignorar errores debido a que por ejemplo si se quiere realizar un fuzzing de subdominios,
+#     nos dara error siempre
 
 ##  ERRORES O BUGS PARA CORREGIR
 #   - refactorizar algunas funciones                                                                                                                                                                                                         
