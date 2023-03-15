@@ -91,6 +91,7 @@ def parse_arguments():
     debug.add_argument("-v", "--verbose", action="store_true", help="show verbose messages")
     debug.add_argument("-d", "--debug",   action="store_true", help="show debugging messages")
     debug.add_argument("-o", "--output",  metavar="", type=argparse.FileType('w'), help="save output to a file")
+    debug.add_argument("-q", "--quiet",   action="store_true", help="dont show config before execution")
 
     # show filter group args
     filters = parser.add_argument_group("filter options")
@@ -279,32 +280,89 @@ def validate_body_data(headers, body_data):
     pass
     
 def show_error(msg, origin):
-    print()
-    print(f" {origin} --> error")
+    print(f"\n {origin} --> error")
     print(f" [X] {msg}")
     exit(-1)
 
+def show_config(args):
+    print("==========================================")
+    print("[!] General...")
+    print(f"          TARGET: {args.url}")
+    print(f"     HTTP METHOD: {args.http_method}")
+    if (args.http_method == "POST"):
+        print(f"           BODY DATA: {args.body_data}")
+    if (len(args.cookies) > 0):
+        print(f"             COOKIES: {args.cookies}")
+    if (len(args.headers) > 0):
+        print(f"             HEADERS: {args.headers}")
+    if (len(args.proxies) > 0):
+        print(f"             PROXIES: {args.proxies}")
+    print(f"      USER AGENT: {args.user_agent}")
+    print(f" RAND USER AGENT: {args.rand_user_agent}")
+    print(f"FOLLOW REDIRECTS: {args.follow}")
+    print(f"        WORDLIST: {args.wordlist_path}")
+    print()
+    print("[!] Performance...")
+    print(f"         THREADS: {args.threads}")
+    print(f"         TIMEOUT: {args.timeout}")
+    print(f"        TIMEWAIT: {args.timewait}")
+    print(f"         RETRIES: {args.retries}")    
+    print()
+    print("[!] Debugging...")
+    print(f"         VERBOSE: {args.verbose}")
+    print(f"           DEBUG: {args.debug}")
+    print(f"          OUTPUT: {args.output}")
+    print()
+    print("[!] Filters...")
+    print(f"         SHOW SC: {args.ss_filter}") # status code
+    print(f"         SHOW CL: {args.sc_filter}") # content length
+    print(f"         SHOW WS: {args.sw_filter}") # web server
+    print(f"         SHOW RE: {args.sr_filter}") # regex    
+    print(f"         HIDE SC: {args.hs_filter}") # status code
+    print(f"         HIDE CL: {args.hc_filter}") # content length
+    print(f"         HIDE WS: {args.hw_filter}") # web server
+    print(f"         HIDE RE: {args.hr_filter}") # regex    
+    print("==========================================\n")
+    sleep(2)
+
+def verbose(state, msg):
+    if state == True:
+        print("[!] verbose:", msg)    
+
 def prog_bar(args):
+    """ Progress bar"""
+
+    # as prog_bar is executed as a thread, it uses global variable
+    # run_event to know when it has to stop 
     global run_event
 
-    with alive_bar(args.request_total) as bar:
-        while args.request_count < args.request_total:
+    # setting global variable bar because it will be called from other threads
+    # every time bar is called, progress var increments is bar in 1 
+    global bar
 
+    # starting alive_bar
+    with alive_bar(args.request_total, title=f"Progress", enrich_print=False) as bar:
+        while args.request_count < args.request_total:
             # stop thread if run_event not set
             if run_event.is_set() == False:
                 break
             
-            increment = args.request_count - bar.current
-            bar(increment)
-            sleep(0.01)
+            sleep(0.1)
 
 def fuzzing(args):
+    """ 
+    fuzzing do the next jobs
+        - read line by line the specified wordlist (args.wordlist)
+        - replaces every magic word (args.magic_word) in the HTTP request with the line read before
+        - sends the HTTP request and filters output with status code, content length, server or matching patterns
+
+    """
     class Namespace():
         pass
 
     filters = Namespace()
 
-    global run_event
+    global run_event, bar
 
     word = " "
     retry_counter = 0    
@@ -325,6 +383,7 @@ def fuzzing(args):
 
         # ignoring empty lines
         if word == "":
+            bar()
             args.request_count += 1
             continue
         
@@ -365,6 +424,7 @@ def fuzzing(args):
             payload = payload + body_data + " - "
 
 
+
         try:
             if args.http_method == "GET":
                 req = requests.get(new_url, timeout=int(args.timeout),
@@ -375,18 +435,15 @@ def fuzzing(args):
                                        timeout=int(args.timeout), allow_redirects=args.follow, proxies=args.proxies,
                                        cookies=cookies, headers=headers)
         except (socket.error, requests.ConnectTimeout):
-            if args.http_method == "GET":
-                print(f"[!] Error stablishing connection at {new_url}", end="")
-            else:
-                print(f"[!] Error stablishing connection to {body_data}", end="")
 
             if (retry_counter < args.retries):
                 retry_counter += 1
-                print(f" // Retrying connection {retry_counter}")
+                print(f" // Retrying connection PAYLOAD[{payload}] retries[{retry_counter}]")
                 continue
-            print()
+
             run_event.clear()
-            exit(0)
+            show_error(f"Error stablishing connection  PAYLOAD[{payload}]", "fuzzing")
+            
 
         retry_counter = 0
 
@@ -421,6 +478,7 @@ def fuzzing(args):
                     
                 continue                               
         
+        bar()
         args.request_count += 1
 
         # timewait 
@@ -467,68 +525,32 @@ def response_filter(filters, response):
 
     return filter_status
 
-def show_config(args):
-    print("==========================================")
-    print("[!] General...")
-    print(f"          TARGET: {args.url}")
-    print(f"     HTTP METHOD: {args.http_method}")
-    if (args.http_method == "POST"):
-        print(f"           BODY DATA: {args.body_data}")
-    if (len(args.cookies) > 0):
-        print(f"             COOKIES: {args.cookies}")
-    if (len(args.headers) > 0):
-        print(f"             HEADERS: {args.headers}")
-    if (len(args.proxies) > 0):
-        print(f"             PROXIES: {args.proxies}")
-    print(f"      USER AGENT: {args.user_agent}")
-    print(f" RAND USER AGENT: {args.rand_user_agent}")
-    print(f"FOLLOW REDIRECTS: {args.follow}")
-    print(f"        WORDLIST: {args.wordlist_path}")
-    print()
-    print("[!] Performance...")
-    print(f"         THREADS: {args.threads}")
-    print(f"         TIMEOUT: {args.timeout}")
-    print(f"        TIMEWAIT: {args.timewait}")
-    print(f"         RETRIES: {args.retries}")    
-    print()
-    print("[!] Debugging...")
-    print(f"         VERBOSE: {args.verbose}")
-    print(f"           DEBUG: {args.debug}")
-    print(f"          OUTPUT: {args.output}")
-    print()
-    print("[!] Filters...")
-    print(f"         SHOW SC: {args.ss_filter}") # status code
-    print(f"         SHOW CL: {args.sc_filter}") # content length
-    print(f"         SHOW WS: {args.sw_filter}") # web server
-    print(f"         SHOW RE: {args.sr_filter}") # regex    
-    print(f"         HIDE SC: {args.hs_filter}") # status code
-    print(f"         HIDE CL: {args.hc_filter}") # content length
-    print(f"         HIDE WS: {args.hw_filter}") # web server
-    print(f"         HIDE RE: {args.hr_filter}") # regex    
-    print("==========================================\n")
-    sleep(2)
-
-def verbose(state, msg):
-    if state == True:
-        print("[!] verbose:", msg)
 
 
 def thread_starter(args):
-    # initializating run_event to stop threads when required
+    """this functions prepare and execute (start) every thread """
+
+    # initializating global var run_event to stop threads when required
     global run_event
     run_event = threading.Event()
     run_event.set()
     
     # creating thread lists
     thread_list = []
-    thread_list.append(threading.Thread(target=prog_bar, args=[args]))
+    # thread[0] is a specific thread for progress bar
+    thread_list.append(threading.Thread(target=prog_bar, args=[args]))  
     for thread in range(0, args.threads):
         thread_list.append(threading.Thread(target=fuzzing, args=[args]))
 
     # starting threads
-    for thread in thread_list:
-        thread.start()
-        
+    for i in range(len(thread_list)):
+        thread_list[i].start()
+
+        # giving thread[0] some time to set up progress bar global variables
+        # in order to avoid calls to undefined variables from other threads
+        if i == 0:
+            sleep(0.1)
+
     exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
@@ -537,6 +559,7 @@ def thread_starter(args):
             sleep(1)
         
         exit_msg = "[!] program finished "
+        exit_code = 0
         
     except KeyboardInterrupt:
         # to stop threads, run_event should be clear()
@@ -544,13 +567,16 @@ def thread_starter(args):
             
         exit_msg = "[!] threads successfully closed \n"
         exit_msg += "[!] KeyboardInterrupt: Program finished by user..."
+        exit_code = -1
 
     finally:
         # finishing threads
         for thread in thread_list:
             thread.join()
 
-        print(exit_msg)    
+    print(exit_msg)    
+    return exit_code
+
 
 def main():
     banner()
@@ -564,20 +590,20 @@ def main():
 
     initial_checks(parsed_arguments)
 
-    show_config(parsed_arguments)    
+    if (parsed_arguments.quiet == False):
+        show_config(parsed_arguments)    
 
-    thread_starter(parsed_arguments)
+    return(thread_starter(parsed_arguments))
 
 
 if __name__ == "__main__":
     try:
-        main()
+        exit(main())
     except KeyboardInterrupt:
-        print("\n\n\n[!] Keyboard interrupt :: FInishing the program ")
-        exit(0)
+        show_error("User Keyboard Interrupt", "main")
+
 
 ##  FUNCIONALIDADES PARA AGREGAR
-#   - Progress Bar
 #   - colored output
 #   - Auto update usando git
 #   - Basic Auth 
