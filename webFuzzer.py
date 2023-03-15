@@ -28,8 +28,8 @@ def banner():
   \ V  V /  __/ |_) | |  | |_| |/ / / /  __/ |   
    \_/\_/ \___|_.__/|_|   \__,_/___/___\___|_|   
                                                  
-    author: {author} 
-    version: {version}
+    author:  {bcolors.HEADER}{author}{bcolors.ENDC}
+    version: {bcolors.HEADER}{version}{bcolors.ENDC}
     """)
     
 
@@ -55,6 +55,13 @@ class ProxyParser(argparse.Action):
                 getattr(namespace, self.dest)[key] = val    
         except:
             show_error(f"uanble to parse {values} due to incorrect format ", "ProxyParser")
+
+class bcolors:
+    HEADER  = '\033[95m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL    = '\033[91m'
+    ENDC    = '\033[0m'
 
 
 def parse_arguments():
@@ -280,8 +287,8 @@ def validate_body_data(headers, body_data):
     pass
     
 def show_error(msg, origin):
-    print(f"\n {origin} --> error")
-    print(f" [X] {msg}")
+    print(f"\n {origin} --> {bcolors.FAIL}error{bcolors.ENDC}")
+    print(f" [X] {bcolors.FAIL}{msg}{bcolors.ENDC}")
     exit(-1)
 
 def show_config(args):
@@ -438,7 +445,7 @@ def fuzzing(args):
 
             if (retry_counter < args.retries):
                 retry_counter += 1
-                print(f" // Retrying connection PAYLOAD[{payload}] retries[{retry_counter}]")
+                print(f" {bcolors.WARNING}// Retrying connection PAYLOAD[{payload}] retries[{retry_counter}] {bcolors.ENDC}")
                 continue
 
             run_event.clear()
@@ -457,10 +464,17 @@ def fuzzing(args):
             filters.cl = args.sc_filter
             filters.ws = args.sw_filter
             filters.re = args.sr_filter
+
             if response_filter(filters, req) == True:
-                print("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[%-100s]"%(payload[:100]) + " "
+                output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
+                output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
+                output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+                print(output_string)
+
+                # write output to a file (log) if specified
                 if args.output != None:
-                    args.output.write("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                    args.output.write(output_string)
                     
                 continue               
         
@@ -472,9 +486,15 @@ def fuzzing(args):
             filters.re = args.hr_filter
             
             if response_filter(filters, req) == False:
-                print("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))
+                output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-100s{bcolors.ENDC}]"%(payload[:100]) + " "
+                output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
+                output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
+                output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+                print(output_string)
+
+                # write output to a file (log) if specified
                 if args.output != None:
-                    args.output.write("PAYLOAD[%-100s]\tSC[%-3s]\tConLen[%-10s]\tSERV[%-10s]"%(payload[:100], req.status_code, req.headers["Content-Length"], req.headers["Server"]))                
+                    args.output.write(output_string)
                     
                 continue                               
         
@@ -604,8 +624,6 @@ if __name__ == "__main__":
 
 
 ##  FUNCIONALIDADES PARA AGREGAR
-#   - colored output
-#   - Auto update usando git
 #   - Basic Auth 
 #   - Codificadores para los payloads
 
