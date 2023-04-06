@@ -7,15 +7,14 @@ import requests
 import threading
 import socket
 import re
+import json
 from time import sleep
 from sys import argv
-from urllib.parse import urlparse
 from urllib.parse import quote
-from ast import literal_eval
 from random import choice as random_choice
 from django.core.validators import URLValidator
 from alive_progress import alive_bar
-from itertools import count
+from chardet import detect as detect_encoding
 
 
 def banner():
@@ -57,6 +56,17 @@ class ProxyParser(argparse.Action):
         except:
             show_error(f"uanble to parse {values} due to incorrect format ", "ProxyParser")
 
+class ListParser(argparse.Action):
+    """this class is used to convert an argument directly into a comma separated list"""
+    def __call__(self, parser, namespace, values, option_string=None):
+        setattr(namespace, self.dest, list())
+        try:
+            for val in values.split(','):
+                getattr(namespace, self.dest).append(val)
+        except:
+            show_error(f"unable to parse {values} due to incorrect format", "ListParser::class")
+            
+
 class bcolors:
     HEADER  = '\033[95m'
     OKGREEN = '\033[92m'
@@ -65,28 +75,31 @@ class bcolors:
     ENDC    = '\033[0m'
 
 
+
 def parse_arguments():
     """ return parsed arguments """
 
-    magic_word = "FUZZ"
+    magic = "FUZZ"
     parser = argparse.ArgumentParser(prog="./webFuzzer.py", 
                                      usage="./webFuzzer.py [options] -u {url} -w {wordlist}",
                                      description="a simple python multithreading web fuzzer", 
                                      epilog="https://github.com/mind2hex/")
     
     # general args
-    parser.add_argument("-u", "--url",         metavar="", required=True, help=f"target url. ex --> http://localhost/{magic_word}")
+    parser.add_argument("-u", "--url",         metavar="", required=True, help=f"target url. ex --> http://localhost/{magic}")
     parser.add_argument("-w", "--wordlist",    metavar="", required=True, type=argparse.FileType('r', encoding='latin-1'), help="wordlist")
-    parser.add_argument("-b", "--body-data",   metavar="", help=f"body data to send using POST method. ex --> 'username=admin&password={magic_word}'")
+    parser.add_argument("-b", "--body-data",   metavar="", help=f"body data to send using POST method. ex --> 'username=admin&password={magic}'")
     parser.add_argument("-C", "--cookies",     metavar="", default={}, action=DictParser,  help="set cookies.      ex --> 'Cookie1=lol&Cookie2=lol'")
     parser.add_argument("-H", "--headers",     metavar="", default={}, action=DictParser,  help="set HTTP headers. ex --> 'Header1=lol&Header2=lol'")    
     parser.add_argument("-P", "--proxies",     metavar="", default={}, action=ProxyParser, help="set proxies.      ex --> 'http;http://proxy1:8080,https;http://proxy2:8000'") 
     parser.add_argument("-U", "--user-agent",  metavar="", default="yoMama", help="specify user agent")
-    parser.add_argument("-X", "--http-method", metavar="", choices=["GET", "POST"], default="GET", help="HTTP method to use. [GET|POST]")
+    parser.add_argument("-X", "--http-method", metavar="", choices=["GET", "HEAD", "POST"], default="GET", help="HTTP  to use. [GET|POST|HEAD]")
     parser.add_argument("-f", "--follow",    action="store_true", default=False, help="follow redirections")
+    parser.add_argument("--magic",              metavar="", default="FUZZ", help=f"specify magic word [default:FUZZ]")
     parser.add_argument("--rand-user-agent", action="store_true", help="randomize user-agent")
     parser.add_argument("--usage",           action="store_true", help="show usage examples")    
     parser.add_argument("--ignore-errors",   action="store_true", help="ignore connection errors, useful to enumerate fuzz subdomains")
+    
     
     # performance args
     performance = parser.add_argument_group("performance options")
@@ -102,38 +115,22 @@ def parse_arguments():
     debug.add_argument("-o", "--output",  metavar="", type=argparse.FileType('w'), help="save output to a file")
     debug.add_argument("-q", "--quiet",   action="store_true", help="dont show config before execution")
 
-    # show filter group args
+    # filter args
     filters = parser.add_argument_group("filter options")
-    show_filters = filters.add_mutually_exclusive_group()
-    show_filters.add_argument("-ss", "--ss-filter", metavar="", default="None", help="show responses with the specified status codes. ex: '200,300,404'")
-    show_filters.add_argument("-sc", "--sc-filter", metavar="", default="None", help="show responses with the specified content lenghts. ex: '1234,4321'")
-    show_filters.add_argument("-sw", "--sw-filter", metavar="", default="None", help="show responses with the specified web servers. ex: 'apache,fakewebserver")
-    show_filters.add_argument("-sr", "--sr-filter", metavar="", default="None", help="show responses matching the specified pattern. ex: 'authentication failed'")
-
-    # hide filter group args
-    hide_filters = filters.add_mutually_exclusive_group()
-    hide_filters.add_argument("-hs", "--hs-filter", metavar="", default="None", help="hide responses with the specified status codes. ex: '300,400'")
-    hide_filters.add_argument("-hc", "--hc-filter", metavar="", default="None", help="hide responses with the specified content lenghts. ex: '1234,4321'")
-    hide_filters.add_argument("-hw", "--hw-filter", metavar="", default="None", help="hide responses with the specified  web servers. ex: 'apache,nginx'")
-    hide_filters.add_argument("-hr", "--hr-filter", metavar="", default="None", help="hide responses matching the specified pattern. ex: 'authentication failed'")    
+    filters.add_argument("-hs", "--hs-filter", metavar="", default=None, action=ListParser, help="hide responses with the specified status codes. ex: '300,400'")
+    filters.add_argument("-hc", "--hc-filter", metavar="", default=None, action=ListParser, help="hide responses with the specified content lenghts. ex: '1234,4321'")
+    filters.add_argument("-hw", "--hw-filter", metavar="", default=None, action=ListParser, help="hide responses with the specified  web servers. ex: 'apache,nginx'")
+    filters.add_argument("-hr", "--hr-filter", metavar="", default=None, help="hide responses matching the specified pattern. ex: 'authentication failed'")    
 
     parsed_arguments               = parser.parse_args()        
-    parsed_arguments.magic_word    = magic_word
 
     # parsing wordlist and total requests
-    parsed_arguments.wordlist_path = parsed_arguments.wordlist.name
-    parsed_arguments.request_count = 0
-    with open(parsed_arguments.wordlist_path, 'r', encoding="latin-1") as f:
-        parsed_arguments.request_total = sum(1 for _ in f)        
+    parsed_arguments.request_count = 0 # every time a thread makes a request, this counter is added by one
+    parsed_arguments.request_total = get_file_lines(parsed_arguments.wordlist.name)
 
-    # parsing filters
-    parsed_arguments.ss_filter     = parsed_arguments.ss_filter.split(",")
-    parsed_arguments.sc_filter     = parsed_arguments.sc_filter.split(",")
-    parsed_arguments.sw_filter     = parsed_arguments.sw_filter.split(",")
-    parsed_arguments.hs_filter     = parsed_arguments.hs_filter.split(",")
-    parsed_arguments.hc_filter     = parsed_arguments.hc_filter.split(",")
-    parsed_arguments.hw_filter     = parsed_arguments.hw_filter.split(",")
-
+    # setting up screenlock to avoid threads printing at the same time and messing up the text output
+    parsed_arguments.screenlock = threading.Semaphore(value=1)
+    
     # parsing user agents
     parsed_arguments.UserAgent_wordlist = ['Mozilla/1.22 (compatible; MSIE 2.0d; Windows NT)', 
                      'Mozilla/2.0 (compatible; MSIE 3.02; Update a; Windows NT)', 
@@ -184,6 +181,19 @@ def usage():
 
     exit(0)
 
+def get_file_lines(file):
+    """ retorna la cantidad de lineas de un archivo """
+
+    # detecting encoding
+    with open(file, 'rb') as f:
+        codification = detect_encoding(f.read())['encoding']
+
+    # getting lines
+    with open(file, 'r', encoding=codification) as f:
+        total = sum(1 for line in f)
+        
+    return total    
+
 def initial_checks(args):
     """ Initial checks before proceeds with the program execution"""
 
@@ -200,79 +210,36 @@ def initial_checks(args):
         except :
             show_error(f"Proxy server is not responding", "initial_checks()")
 
-    # checking magic_word inside GET request
-    if ((args.http_method == "GET") and (args.magic_word not in args.url)):
-        show_error(f"magic word {args.magic_word} not in the url: {args.url}", "initial_checks()")
+    # checking magic inside GET request
+    if ((args.http_method == "GET") and (args.magic not in args.url)):
+        show_error(f"magic word {args.magic} not in the url: {args.url}", "initial_checks()")
 
-    # checking magic_word inside POST request
+    # checking magic inside POST request
     if (args.http_method == "POST"):
         if len(args.body_data) == 0:
             show_error("No body data specified...", "initial_checks()")
 
-        if ((args.magic_word not in args.url) and (args.magic_word not in args.body_data)):
-            show_error("magic word {args.magic_word} not in the url neither body data", "initial_checks()")
+        if ((args.magic not in args.url) and (args.magic not in args.body_data)):
+            show_error("magic word {args.magic} not in the url neither body data", "initial_checks()")
 
 def validate_arguments(args):
     """ validate_arguments checks that every argument is valid or in the correct format """
     
-    validate_url(args.url)
+    # more validations required
 
-    #validate_wordlist(args.wordlist_path)
+    validate_url(args.url)
 
     if args.http_method == "POST":
         validate_body_data(args.headers, args.body_data)
 
-    #validate_cookies(args.cookies)
-
-    #validate_headers(args.headers)
-
-    #validate_user_agent(args.user_agent)
-
-    #validate_threads(args.threads)
-
-    #validate_timeout(args.timeout)
-
-    #validate_timewait(args.timewait)
-
-    #validate_retries(args.retries)
-
-    #validate_output(args.output)
-
-    #validate_filters(args.filters)
-
-    #validate_proxies(args.proxies)
-
-    """
-    if len(parsed_arguments.proxies) != 0:
-        try:
-            parsed_arguments.proxies = parsed_arguments.proxies.split(",")
-            for i in range(len(parsed_arguments.proxies)):
-                parsed_arguments.proxies[i] = parsed_arguments.proxies[i].split(";")
-            parsed_arguments.proxies = dict(parsed_arguments.proxies)
-        except:
-            raise Exception(" Invalid proxies ")
-    """
-
-    # validating ss_filter (show status code filter)
-    if (args.ss_filter[0] != "None"):
-        for status_code in args.ss_filter:
-            if status_code.isdigit == False:
-                raise Exception(f" incorrect ss_filter value {status_code}")
-
-    # validating sc_filter (show content length filter)
-    if (args.sc_filter[0] != "None"):
-        for content_length in args.sc_filter:
-            if content_length.isdigit == False:
-                raise Exception(f" incorrect sc_filter value {content_length}")
-
     # validating hs-filter (hide status code filter)
-    if (args.hs_filter[0] != "None"):
+    if (args.hs_filter != None):
         for status_code in args.hs_filter:
             if status_code.isdigit == False:
                 raise Exception(f" incorrect hs_filter value {status_code}")
 
     # validating sc-filter (hide content length filter)
-    if (args.hc_filter[0] != "None"):
+    if (args.hc_filter != None):
         for content_length in args.hc_filter:
             if content_length.isdigit == False:
                 raise Exception(f" incorrect hc_filter value {content_length}")
@@ -309,7 +276,7 @@ def show_config(args):
     print(f"      USER AGENT: {args.user_agent}")
     print(f" RAND USER AGENT: {args.rand_user_agent}")
     print(f"FOLLOW REDIRECTS: {args.follow}")
-    print(f"        WORDLIST: {args.wordlist_path}")
+    print(f"        WORDLIST: {args.wordlist.name}")
     print()
     print("[!] Performance...")
     print(f"         THREADS: {args.threads}")
@@ -323,10 +290,6 @@ def show_config(args):
     print(f"          OUTPUT: {args.output}")
     print()
     print("[!] Filters...")
-    print(f"         SHOW SC: {args.ss_filter}") # status code
-    print(f"         SHOW CL: {args.sc_filter}") # content length
-    print(f"         SHOW WS: {args.sw_filter}") # web server
-    print(f"         SHOW RE: {args.sr_filter}") # regex    
     print(f"         HIDE SC: {args.hs_filter}") # status code
     print(f"         HIDE CL: {args.hc_filter}") # content length
     print(f"         HIDE WS: {args.hw_filter}") # web server
@@ -341,37 +304,36 @@ def verbose(state, msg):
 def prog_bar(args):
     """ Progress bar"""
 
-    # as prog_bar is executed as a thread, it uses global variable
-    # run_event to know when it has to stop 
-    global run_event
-
     # setting global variable bar because it will be called from other threads
     # every time bar is called, progress var increments is bar in 1 
     global bar
 
     # starting alive_bar
     with alive_bar(args.request_total, title=f"Progress", enrich_print=False) as bar:
-        while args.request_count < args.request_total:
+        while True:
             # stop thread if run_event not set
-            if run_event.is_set() == False:
-                break
-            
+            if args.run_event.is_set() == False :
+                status = False
+                for thread in threading.enumerate():
+                    if ("fuzzing" in thread.name):
+                        status = True
+                        break
+                
+                if (status == False):
+                    break
+
             sleep(0.1)
 
 def fuzzing(args):
     """ 
     fuzzing do the next jobs
         - read line by line the specified wordlist (args.wordlist)
-        - replaces every magic word (args.magic_word) in the HTTP request with the line read before
+        - replaces every magic word (args.magic) in the HTTP request with the line read before
         - sends the HTTP request and filters output with status code, content length, server or matching patterns
 
     """
-    class Namespace():
-        pass
 
-    filters = Namespace()
-
-    global run_event, bar
+    global bar
 
     word = " "
     retry_counter = 0    
@@ -383,26 +345,31 @@ def fuzzing(args):
             word = quote(word.strip())
 
         # checking if threads should still running
-        if run_event.is_set() == False:
+        if args.run_event.is_set() == False:
             break
 
         # checking if thread exceeded total requests
         if args.request_count >= args.request_total:
             break
 
+        # checking word is not already requested
+        if word in args.words_requested:
+            continue
+
         # ignoring empty lines
         if word == "":
             bar()
+            args.words_requested.append(word)
             args.request_count += 1
             continue
         
         # replacing magic word from url
-        new_url = args.url.replace(args.magic_word, word)
+        new_url = args.url.replace(args.magic, word)
 
         # replacing magic word from headers
         headers = str(args.headers)
-        headers = headers.replace(args.magic_word, word)
-        headers = literal_eval(headers)
+        headers = headers.replace(args.magic, word)
+        headers = json.loads(headers)
 
         # setting user_agent if not specified
         headers.setdefault("User-Agent", args.user_agent)
@@ -413,30 +380,28 @@ def fuzzing(args):
 
         # replacing magic word from cookies
         cookies = str(args.cookies)
-        cookies = cookies.replace(args.magic_word, word)
-        cookies = literal_eval(cookies)
+        cookies = cookies.replace(args.magic, word)
+        cookies = json.loads(cookies)
 
         # replacing magic word from body data
         if args.http_method == "POST":
             body_data = args.body_data
-            body_data = body_data.replace(args.magic_word, word)
+            body_data = body_data.replace(args.magic, word)
 
         # forming payload
         payload = ""
-        if args.magic_word in args.url:
+        if args.magic in args.url:
             payload = payload + new_url + " - "
-        if args.magic_word in str(args.headers):
+        if args.magic in str(args.headers):
             payload = payload + str(headers) + " - "
-        if args.magic_word in str(args.cookies):
+        if args.magic in str(args.cookies):
             payload = payload + str(cookies) + " - "
-        if args.magic_word in str(args.body_data):
+        if args.magic in str(args.body_data):
             payload = payload + body_data + " - "
 
-
-
         try:
-            if args.http_method == "GET":
-                req = requests.get(new_url, timeout=int(args.timeout),
+            if args.http_method == "GET" or args.http_method == "HEAD":
+                req = requests.request(args.http_method, new_url, timeout=int(args.timeout),
                                        allow_redirects=args.follow, proxies=args.proxies,
                                        cookies=cookies, headers=headers)
             elif args.http_method == "POST":
@@ -447,15 +412,18 @@ def fuzzing(args):
 
             if args.ignore_errors == True:
                 args.request_count += 1
+                args.words_requested.append(word)                
                 bar()
                 continue
 
             if (retry_counter < args.retries):
                 retry_counter += 1
+                args.screenlock.acquire()
                 print(f" {bcolors.WARNING}// Retrying connection PAYLOAD[{payload}] retries[{retry_counter}] {bcolors.ENDC}")
+                args.screenlock.release()
                 continue
 
-            run_event.clear()
+            args.run_event.clear()   
             show_error(f"Error stablishing connection  PAYLOAD[{payload}]", "fuzzing")
             
 
@@ -465,88 +433,79 @@ def fuzzing(args):
         req.headers.setdefault("Content-Length", "UNK")
         req.headers.setdefault("Server",         "UNK")
 
-        # using show filters
-        if (args.ss_filter[0] != "None" or args.sc_filter[0] != "None" or args.sw_filter[0] != "None" or args.sr_filter != "None"):
-            filters.sc = args.ss_filter
-            filters.cl = args.sc_filter
-            filters.ws = args.sw_filter
-            filters.re = args.sr_filter
-
-            if response_filter(filters, req) == True:
-                output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[%-100s]"%(payload[:100]) + " "
-                output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
-                output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
-                output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
-                print(output_string)
-
-                # write output to a file (log) if specified
-                if args.output != None:
-                    args.output.write(output_string)
-                    
-                continue               
-        
         # using hide filters
-        if (args.hs_filter[0] != "None" or args.hc_filter[0] != "None" or args.hw_filter[0] != "None" or args.hr_filter != "None"):
-            filters.sc = args.hs_filter
-            filters.cl = args.hc_filter
-            filters.ws = args.hw_filter
-            filters.re = args.hr_filter
+        if (args.hs_filter != None or args.hc_filter != None or args.hw_filter != None or args.hr_filter != None):
             
-            if response_filter(filters, req) == False:
+            if response_filter(args.hs_filter, args.hc_filter, args.hw_filter, args.hr_filter, req) == False:
                 output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-100s{bcolors.ENDC}]"%(payload[:100]) + " "
                 output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
                 output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
                 output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+                args.screenlock.acquire()
                 print(output_string)
+                args.screenlock.release()
 
                 # write output to a file (log) if specified
                 if args.output != None:
                     args.output.write(output_string)
-                    
-                continue                               
-        
+        else:
+            # if no filters specified, then prints everything 
+            output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-100s{bcolors.ENDC}]"%(payload[:100]) + " "
+            output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
+            output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
+            output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+            args.screenlock.acquire()
+            print(output_string)
+            args.screenlock.release()
+            
+            # write output to a file (log) if specified
+            if args.output != None:
+                args.output.write(output_string)
+
+        # calling bar to increment bar progress                    
         bar()
         args.request_count += 1
+        args.words_requested.append(word)                
 
         # timewait 
         sleep(args.timewait)
-        
+
 
     return 0    
 
-
-def response_filter(filters, response):
+def response_filter(hs_filter, hc_filter, hw_filter, hr_filter, response):
     filter_status = False
     # show filters
-    if (len(filters.sc[0]) > 0):
+    if (hs_filter != None):
         # show matching status code filter
-        if str(response.status_code) in filters.sc:
+        if str(response.status_code) in hs_filter:
             filter_status = True
 
-    elif (len(filters.cl[0]) > 0):
+    elif (hc_filter != None):
         # show matching content length filter
         if response.headers["Content-Length"] != "UNK":
-            if str(response.headers["Content-Length"]) in filters.cl:
+            if str(response.headers["Content-Length"]) in hc_filter:
                 filter_status = True
 
-    elif (len(filters.ws[0]) > 0):
+    elif (hw_filter != None):
         # show matching web server name filter 
-        if response.headers["Server"] in filters.ws:
+        if response.headers["Server"] in hw_filter:
             filter_status = True
-
-    elif (len(filters.re) > 0):
+    
+    elif (hr_filter != None):
         # show matching pattern filter
         # searching matching patterns in response headers
         matching = False
         for header in response.headers.keys():
-            if re.search(filters.re, response.headers[header]) != None:
+            if re.search(hr_filter, response.headers[header]) != None:
                 matching = True
                 break
 
         if matching == True:
             filter_status = True
         else:
-            aux = re.search(filters.re, response.content.decode("latin-1"))
+            # searching matching patterns in response content
+            aux = re.search(hr_filter, response.content.decode("latin-1"))
             if aux != None:
                 filter_status = True
 
@@ -558,16 +517,18 @@ def thread_starter(args):
     """this functions prepare and execute (start) every thread """
 
     # initializating global var run_event to stop threads when required
-    global run_event
-    run_event = threading.Event()
-    run_event.set()
+    args.run_event = threading.Event()
+    args.run_event.set()
+
+    args.words_requested = [] # debugging
     
     # creating thread lists
     thread_list = []
     # thread[0] is a specific thread for progress bar
     thread_list.append(threading.Thread(target=prog_bar, args=[args]))  
-    for thread in range(0, args.threads):
+    for iter in range(0, args.threads):
         thread_list.append(threading.Thread(target=fuzzing, args=[args]))
+
 
     # starting threads
     for i in range(len(thread_list)):
@@ -582,15 +543,16 @@ def thread_starter(args):
     try:
         # if a thread clean run_event variable, that means a error has happened
         # for that reason, all threads must stop and the program itself should stop too
-        while run_event.is_set() and threading.active_count() > 1:
-            sleep(1)
+        while args.run_event.is_set() and threading.active_count() > 3:
+            sleep(0.1)
         
+        args.run_event.clear()
         exit_msg = "[!] program finished "
         exit_code = 0
         
     except KeyboardInterrupt:
         # to stop threads, run_event should be clear()
-        run_event.clear()
+        args.run_event.clear()
             
         exit_msg = "[!] threads successfully closed \n"
         exit_msg += "[!] KeyboardInterrupt: Program finished by user..."
@@ -598,8 +560,9 @@ def thread_starter(args):
 
     finally:
         # finishing threads
-        for thread in thread_list:
-            thread.join()
+        for i in range(1, len(thread_list)):
+            thread_list[i].join()
+        thread_list[0].join() # first thread of thread_list (prog_bar) should be the last one
 
     print(exit_msg)    
     return exit_code
@@ -612,7 +575,7 @@ def main():
         usage()
     
     parsed_arguments = parse_arguments()
-    
+
     validate_arguments(parsed_arguments)    
 
     #initial_checks(parsed_arguments)
@@ -629,22 +592,20 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         show_error("User Keyboard Interrupt", "main")
 
-
 ##  FUNCIONALIDADES PARA AGREGAR
 #   - Basic Auth 
 #   - Codificadores para los payloads
 #   - agregar opcion para ignorar errores debido a que por ejemplo si se quiere realizar un fuzzing de subdominios,
 #     nos dara error siempre
+#   - Aceptar rangos de valores en los content length y status code
 
 ##  ERRORES O BUGS PARA CORREGIR
+#   - Algunos hilos realizan la misma solicitud varias veces (creo que es por que leen la misma linea de un archivo al mismo tiempo)
 #   - refactorizar algunas funciones                                                                                                                                                                                                         
 #   - Si no se especifica retries, al primer fallo, o error de conexion, el programa va a terminarse                                                                                                                                          
 #   - al comparar el resultado con otras herramientas como gobuster, webFuzzer muestra resultados diferentes.                                                                                                                                
 #   - mejorar un poco el output                                                                                                                                                                                                              
 #   - cuando se va a realizar un FUZZing de cookies usando el metodo GET sin especificar la palabra FUZZ en la url                                                                                                                           
 #     el prorama                                                                                                                                                                                                                             
-#   - Si estoy haciendo un fuzzing de cookies o header... como m****a me doy cuenta que payload se esta usando...                                                                                                                             
-#     debo encontrar una forma de mostrar los cookies cuando estoy haciendo un fuzzing de cookies y lo                                                                                                                                 
-#     mismo con los headers.                                                                                                                                                                                                                 
 #   - actualizar usage()
 #   - si la ventana reduce su tamano, el formato de salida se va a estropear.
