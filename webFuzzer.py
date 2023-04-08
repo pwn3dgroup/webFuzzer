@@ -15,6 +15,7 @@ from random import choice as random_choice
 from django.core.validators import URLValidator
 from alive_progress import alive_bar
 from chardet import detect as detect_encoding
+from inspect import currentframe
 
 
 def banner():
@@ -64,7 +65,7 @@ class ListParser(argparse.Action):
             for val in values.split(','):
                 getattr(namespace, self.dest).append(val)
         except:
-            show_error(f"unable to parse {values} due to incorrect format", "ListParser::class")
+            show_error(f"unable to parse {values} due to incorrect format", "class::ListParser")
             
 
 class bcolors:
@@ -94,8 +95,9 @@ def parse_arguments():
     parser.add_argument("-P", "--proxies",     metavar="", default={}, action=ProxyParser, help="set proxies.      ex --> 'http;http://proxy1:8080,https;http://proxy2:8000'") 
     parser.add_argument("-U", "--user-agent",  metavar="", default="yoMama", help="specify user agent")
     parser.add_argument("-X", "--http-method", metavar="", choices=["GET", "HEAD", "POST"], default="GET", help="HTTP  to use. [GET|POST|HEAD]")
-    parser.add_argument("-f", "--follow",    action="store_true", default=False, help="follow redirections")
-    parser.add_argument("--magic",              metavar="", default="FUZZ", help=f"specify magic word [default:FUZZ]")
+    parser.add_argument("--magic",             metavar="", default="FUZZ", help=f"specify magic word [default:FUZZ]")
+    parser.add_argument("-js", "--json",     action="store_true", help="if specified, then body data should be json. ex --> -b {'username':'%s'}"%(magic))
+    parser.add_argument("-f", "--follow",    action="store_true", help="follow redirections")
     parser.add_argument("--rand-user-agent", action="store_true", help="randomize user-agent")
     parser.add_argument("--usage",           action="store_true", help="show usage examples")    
     parser.add_argument("--ignore-errors",   action="store_true", help="ignore connection errors, useful to enumerate fuzz subdomains")
@@ -199,50 +201,39 @@ def initial_checks(args):
 
     # testing target connection
     try:
-        requests.get(args.url, timeout=args.timeout)
+        requests.request(args.http_method, args.url, data=args.body_data, timeout=args.timeout)
     except requests.exceptions.ConnectionError:
-        show_error(f"Failed to establish a new connection to {args.url}", "initial_checks()")
+        show_error(f"Failed to establish a new connection to {args.url}", f"function::{currentframe().f_code.co_name}")
         
     # testing proxy connection
     if len(args.proxies) > 0:
         try:
             requests.get(args.url+"/proxy_test", timeout=args.timeout, proxies=args.proxies)
         except :
-            show_error(f"Proxy server is not responding", "initial_checks()")
+            show_error(f"Proxy server is not responding", f"function::{currentframe().f_code.co_name}")
 
     # checking magic inside GET request
-    if ((args.http_method == "GET") and (args.magic not in args.url)):
-        show_error(f"magic word {args.magic} not in the url: {args.url}", "initial_checks()")
+    if (((args.http_method == "GET") or (args.http_method == "HEAD")) and (args.magic not in args.url)):
+        show_error(f"magic word {args.magic} not in the url: {args.url}", f"function::{currentframe().f_code.co_name}")
 
     # checking magic inside POST request
     if (args.http_method == "POST"):
         if len(args.body_data) == 0:
-            show_error("No body data specified...", "initial_checks()")
+            show_error("No body data specified...", f"function::{currentframe().f_code.co_name}")
 
         if ((args.magic not in args.url) and (args.magic not in args.body_data)):
-            show_error("magic word {args.magic} not in the url neither body data", "initial_checks()")
+            show_error("magic word {args.magic} not in the url neither body data", f"function::{currentframe().f_code.co_name}")
 
 def validate_arguments(args):
     """ validate_arguments checks that every argument is valid or in the correct format """
-    
-    # more validations required
 
     validate_url(args.url)
 
-    if args.http_method == "POST":
-        validate_body_data(args.headers, args.body_data)
+    if (args.http_method == "POST"):
+        validate_body_data(args.body_data, args.json)
 
     # validating hs-filter (hide status code filter)
-    if (args.hs_filter != None):
-        for status_code in args.hs_filter:
-            if status_code.isdigit == False:
-                raise Exception(f" incorrect hs_filter value {status_code}")
-
-    # validating sc-filter (hide content length filter)
-    if (args.hc_filter != None):
-        for content_length in args.hc_filter:
-            if content_length.isdigit == False:
-                raise Exception(f" incorrect hc_filter value {content_length}")
+    validate_filters(args.hs_filter, args.hc_filter, args.hw_filter, args.hr_filter)
 
 def validate_url(url):
     """ validate url using URLValidator from django"""
@@ -250,11 +241,37 @@ def validate_url(url):
     try:
         val(url)
     except:
-        show_error(f"Error while validating url --> {url}", "validate_url")
+        show_error(f"Error while validating url --> {url}", f"function::{currentframe().f_code.co_name}")
 
-def validate_body_data(headers, body_data):
-    pass
-    
+def validate_body_data(post_data, js):
+    if post_data == None:
+        show_error("No post data specified", f"function::{currentframe().f_code.co_name}")
+    elif js:
+        try:
+            json.loads(post_data)
+        except json.decoder.JSONDecodeError:
+            show_error(f"Error while decoding json data {post_data}", f"function::{currentframe().f_code.co_name}")
+    else:
+        # normal body data validations goes here
+        pass
+
+def validate_filters(hs_filter, hc_filter, hw_filter, hr_filer):
+    # (hide status code filter)
+    if (hs_filter != None):
+        for status_code in hs_filter:
+            if status_code.isdigit == False:
+                show_error(f" incorrect hs_filter value {status_code}", f"function::{currentframe().f_code.co_name}")
+
+    # (hide content length filter)
+    if (hc_filter != None):
+        for content_length in hc_filter:
+            if content_length.isdigit == False:
+                show_error(f" incorrect hc_filter value {status_code}", f"function::{currentframe().f_code.co_name}")
+
+    # (hide web server filter)
+    # (hide regex filter)
+                
+
 def show_error(msg, origin):
     print(f"\n {origin} --> {bcolors.FAIL}error{bcolors.ENDC}")
     print(f" [X] {bcolors.FAIL}{msg}{bcolors.ENDC}")
@@ -374,13 +391,17 @@ def fuzzing(args):
         # setting user_agent if not specified
         headers.setdefault("User-Agent", args.user_agent)
 
+        # setting json content type header if specified
+        if (args.json):
+            headers.setdefault("Content-Type", "application/json")
+
         # random user agent
         if (args.rand_user_agent == True):
             headers["User-Agent"] = random_choice(args.UserAgent_wordlist)
 
         # replacing magic word from cookies
         cookies = str(args.cookies)
-        cookies = cookies.replace(args.magic, word)
+        cookies = cookies.replace(args.magic, word).replace("\'", "\"")
         cookies = json.loads(cookies)
 
         # replacing magic word from body data
@@ -391,13 +412,14 @@ def fuzzing(args):
         # forming payload
         payload = ""
         if args.magic in args.url:
-            payload = payload + new_url + " - "
+            payload = "%-40s"%(new_url.replace(" ", ""))
         if args.magic in str(args.headers):
-            payload = payload + str(headers) + " - "
+            payload = "%-s - %-20s"%(payload, str(headers).replace(" ", ""))
         if args.magic in str(args.cookies):
-            payload = payload + str(cookies) + " - "
+            payload = "%-s - %-20s"%(payload, str(cookies).replace(" ", ""))
         if args.magic in str(args.body_data):
-            payload = payload + body_data + " - "
+            payload = "%-s - %-20s"%(payload, body_data.replace(" ", ""))            
+            
 
         try:
             if args.http_method == "GET" or args.http_method == "HEAD":
@@ -424,7 +446,7 @@ def fuzzing(args):
                 continue
 
             args.run_event.clear()   
-            show_error(f"Error stablishing connection  PAYLOAD[{payload}]", "fuzzing")
+            show_error(f"Error stablishing connection  PAYLOAD[{payload}]", f"function::{currentframe().f_code.co_name}")
             
 
         retry_counter = 0
@@ -438,9 +460,9 @@ def fuzzing(args):
             
             if response_filter(args.hs_filter, args.hc_filter, args.hw_filter, args.hr_filter, req) == False:
                 output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-100s{bcolors.ENDC}]"%(payload[:100]) + " "
-                output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
-                output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
-                output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+                output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%s]"%(req.status_code) + " "
+                output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%s]"%(req.headers["Content-Length"]) + " "
+                output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%s]"%(req.headers["Server"]) + " "
                 args.screenlock.acquire()
                 print(output_string)
                 args.screenlock.release()
@@ -450,10 +472,10 @@ def fuzzing(args):
                     args.output.write(output_string)
         else:
             # if no filters specified, then prints everything 
-            output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-100s{bcolors.ENDC}]"%(payload[:100]) + " "
-            output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%-3s]"%(req.status_code) + " "
-            output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%-10s]"%(req.headers["Content-Length"]) + " "
-            output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%-10s]"%(req.headers["Server"]) + " "
+            output_string =  f"{bcolors.OKGREEN}PAYLOAD{bcolors.ENDC}[{bcolors.HEADER}%-110s{bcolors.ENDC}]"%(payload[:110]) + " "
+            output_string += f"{bcolors.OKGREEN}SC{bcolors.ENDC}[%s]"%(req.status_code) + " "
+            output_string += f"{bcolors.OKGREEN}CL{bcolors.ENDC}[%s]"%(req.headers["Content-Length"]) + " "
+            output_string += f"{bcolors.OKGREEN}SERVER{bcolors.ENDC}[%s]"%(req.headers["Server"]) + " "
             args.screenlock.acquire()
             print(output_string)
             args.screenlock.release()
@@ -539,7 +561,6 @@ def thread_starter(args):
         if i == 0:
             sleep(0.1)
 
-    exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
         # for that reason, all threads must stop and the program itself should stop too
@@ -553,9 +574,9 @@ def thread_starter(args):
     except KeyboardInterrupt:
         # to stop threads, run_event should be clear()
         args.run_event.clear()
-            
-        exit_msg = "[!] threads successfully closed \n"
-        exit_msg += "[!] KeyboardInterrupt: Program finished by user..."
+
+        exit_msg = "[!] KeyboardInterrupt: Program finished by user..."    
+        exit_msg += "[!] threads successfully closed \n"
         exit_code = -1
 
     finally:
@@ -578,7 +599,7 @@ def main():
 
     validate_arguments(parsed_arguments)    
 
-    #initial_checks(parsed_arguments)
+    initial_checks(parsed_arguments)
 
     if (parsed_arguments.quiet == False):
         show_config(parsed_arguments)    
@@ -590,7 +611,7 @@ if __name__ == "__main__":
     try:
         exit(main())
     except KeyboardInterrupt:
-        show_error("User Keyboard Interrupt", "main")
+        show_error("User Keyboard Interrupt", f"function::main")
 
 ##  FUNCIONALIDADES PARA AGREGAR
 #   - Basic Auth 
@@ -600,11 +621,9 @@ if __name__ == "__main__":
 #   - Aceptar rangos de valores en los content length y status code
 
 ##  ERRORES O BUGS PARA CORREGIR
-#   - Algunos hilos realizan la misma solicitud varias veces (creo que es por que leen la misma linea de un archivo al mismo tiempo)
 #   - refactorizar algunas funciones                                                                                                                                                                                                         
 #   - Si no se especifica retries, al primer fallo, o error de conexion, el programa va a terminarse                                                                                                                                          
 #   - al comparar el resultado con otras herramientas como gobuster, webFuzzer muestra resultados diferentes.                                                                                                                                
-#   - mejorar un poco el output                                                                                                                                                                                                              
 #   - cuando se va a realizar un FUZZing de cookies usando el metodo GET sin especificar la palabra FUZZ en la url                                                                                                                           
 #     el prorama                                                                                                                                                                                                                             
 #   - actualizar usage()

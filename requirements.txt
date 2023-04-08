@@ -3,3 +3,5 @@ validators
 urllib3
 django
 alive_progress
+chardet
+inspect
