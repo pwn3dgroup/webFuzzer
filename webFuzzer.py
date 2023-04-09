@@ -105,10 +105,10 @@ def parse_arguments():
     
     # performance args
     performance = parser.add_argument_group("performance options")
-    performance.add_argument("--threads",  metavar="<n>", type=int, default=1,  help="threads [default 1]" )
-    performance.add_argument("--timeout",  metavar="<n>", type=int, default=10, help="time to wait for response in seconds [default 10]")
-    performance.add_argument("--timewait", metavar="<n>", type=int, default=0,  help="time to wait between each requests in seconds [default 0]")
-    performance.add_argument("--retries",  metavar="<n>", type=int, default=0,  help="retries per connections if connection fail [default 0]")
+    performance.add_argument("-t",  "--threads",  metavar="", type=int, default=1,  help="threads [default 1]" )
+    performance.add_argument("-to", "--timeout",  metavar="", type=int, default=10, help="time to wait for response in seconds [default 10]")
+    performance.add_argument("-tw", "--timewait", metavar="", type=int, default=0,  help="time to wait between each requests in seconds [default 0]")
+    performance.add_argument("-rt", "--retries",  metavar="", type=int, default=0,  help="retries per connections if connection fail [default 0]")
 
     # debugging args
     debug = parser.add_argument_group("debugging options")
@@ -196,33 +196,6 @@ def get_file_lines(file):
         
     return total    
 
-def initial_checks(args):
-    """ Initial checks before proceeds with the program execution"""
-
-    # testing target connection
-    try:
-        requests.request(args.http_method, args.url, data=args.body_data, timeout=args.timeout)
-    except requests.exceptions.ConnectionError:
-        show_error(f"Failed to establish a new connection to {args.url}", f"function::{currentframe().f_code.co_name}")
-        
-    # testing proxy connection
-    if len(args.proxies) > 0:
-        try:
-            requests.get(args.url+"/proxy_test", timeout=args.timeout, proxies=args.proxies)
-        except :
-            show_error(f"Proxy server is not responding", f"function::{currentframe().f_code.co_name}")
-
-    # checking magic inside GET request
-    if (((args.http_method == "GET") or (args.http_method == "HEAD")) and (args.magic not in args.url)):
-        show_error(f"magic word {args.magic} not in the url: {args.url}", f"function::{currentframe().f_code.co_name}")
-
-    # checking magic inside POST request
-    if (args.http_method == "POST"):
-        if len(args.body_data) == 0:
-            show_error("No body data specified...", f"function::{currentframe().f_code.co_name}")
-
-        if ((args.magic not in args.url) and (args.magic not in args.body_data)):
-            show_error("magic word {args.magic} not in the url neither body data", f"function::{currentframe().f_code.co_name}")
 
 def validate_arguments(args):
     """ validate_arguments checks that every argument is valid or in the correct format """
@@ -270,48 +243,76 @@ def validate_filters(hs_filter, hc_filter, hw_filter, hr_filer):
 
     # (hide web server filter)
     # (hide regex filter)
-                
+
+
+def initial_checks(args):
+    """ Initial checks before proceeds with the program execution"""
+
+    # testing target connection
+    try:
+        requests.request(args.http_method, args.url, data=args.body_data, timeout=args.timeout)
+    except requests.exceptions.ConnectionError:
+        show_error(f"Failed to establish a new connection to {args.url}", f"function::{currentframe().f_code.co_name}")
+        
+    # testing proxy connection
+    if len(args.proxies) > 0:
+        try:
+            requests.get(args.url+"/proxy_test", timeout=args.timeout, proxies=args.proxies)
+        except :
+            show_error(f"Proxy server is not responding", f"function::{currentframe().f_code.co_name}")
+
+    # checking magic inside GET request
+    if (((args.http_method == "GET") or (args.http_method == "HEAD")) and (args.magic not in args.url)):
+        show_error(f"magic word {args.magic} not in the url: {args.url}", f"function::{currentframe().f_code.co_name}")
+
+    # checking magic inside POST request
+    if (args.http_method == "POST"):
+        if len(args.body_data) == 0:
+            show_error("No body data specified...", f"function::{currentframe().f_code.co_name}")
+
+        if ((args.magic not in args.url) and (args.magic not in args.body_data)):
+            show_error("magic word {args.magic} not in the url neither body data", f"function::{currentframe().f_code.co_name}")
+
 
 def show_error(msg, origin):
     print(f"\n {origin} --> {bcolors.FAIL}error{bcolors.ENDC}")
     print(f" [X] {bcolors.FAIL}{msg}{bcolors.ENDC}")
     exit(-1)
 
+
 def show_config(args):
-    print("==========================================")
-    print("[!] General...")
-    print(f"          TARGET: {args.url}")
-    print(f"     HTTP METHOD: {args.http_method}")
-    if (args.http_method == "POST"):
-        print(f"           BODY DATA: {args.body_data}")
-    if (len(args.cookies) > 0):
-        print(f"             COOKIES: {args.cookies}")
-    if (len(args.headers) > 0):
-        print(f"             HEADERS: {args.headers}")
-    if (len(args.proxies) > 0):
-        print(f"             PROXIES: {args.proxies}")
-    print(f"      USER AGENT: {args.user_agent}")
-    print(f" RAND USER AGENT: {args.rand_user_agent}")
-    print(f"FOLLOW REDIRECTS: {args.follow}")
-    print(f"        WORDLIST: {args.wordlist.name}")
+    print(f"[!] %-20s %s"%(f"{bcolors.HEADER}GENERAL{bcolors.ENDC}", "="*40))
+    print("%-20s:%s"%("TARGET",args.url))
+    print("%-20s:%s"%("WORDLIST",args.wordlist.name))
+    print("%-20s:%s"%("MAGIC WORD",str(args.magic)))    
+    print("%-20s:%s"%("METHOD",args.http_method))
+    print("%-20s:%s"%("JSON FORMAT",str(args.json)))    
+    print("%-20s:%s"%("BODY",args.body_data))    
+    print("%-20s:%s"%("COOKIES", str(args.cookies)))    
+    print("%-20s:%s"%("HEADERS", str(args.headers)))    
+    print("%-20s:%s"%("PROXIES", str(args.proxies)))    
+    print("%-20s:%s"%("USER-AGENT", str(args.user_agent)))    
+    print("%-20s:%s"%("RAND-USER-AGENT",str(args.rand_user_agent)))    
+    print("%-20s:%s"%("FOLLOW REDIRECT",str(args.follow)))    
+    print("%-20s:%s"%("IGNORE ERRORS",str(args.ignore_errors)))    
     print()
-    print("[!] Performance...")
-    print(f"         THREADS: {args.threads}")
-    print(f"         TIMEOUT: {args.timeout}")
-    print(f"        TIMEWAIT: {args.timewait}")
-    print(f"         RETRIES: {args.retries}")    
+    print(f"[!] %-20s %s"%(f"{bcolors.HEADER}PERFORMANCE{bcolors.ENDC}", "="*40))
+    print("%-20s:%s"%("THREADS",args.threads))    
+    print("%-20s:%s"%("TIMEOUT",args.timeout))    
+    print("%-20s:%s"%("TIMEWAIT",args.timewait))    
+    print("%-20s:%s"%("RETRIES",args.retries))    
     print()
-    print("[!] Debugging...")
-    print(f"         VERBOSE: {args.verbose}")
-    print(f"           DEBUG: {args.debug}")
-    print(f"          OUTPUT: {args.output}")
+    print(f"[!] %-20s %s"%(f"{bcolors.HEADER}DEBUGGING{bcolors.ENDC}", "="*40))
+    print("%-20s:%s"%("VERBOSE",args.verbose))    
+    print("%-20s:%s"%("DEBUG",args.debug))    
+    print("%-20s:%s"%("OUTPUT",args.output))    
     print()
-    print("[!] Filters...")
-    print(f"         HIDE SC: {args.hs_filter}") # status code
-    print(f"         HIDE CL: {args.hc_filter}") # content length
-    print(f"         HIDE WS: {args.hw_filter}") # web server
-    print(f"         HIDE RE: {args.hr_filter}") # regex    
-    print("==========================================\n")
+    print(f"[!] %-20s %s"%(f"{bcolors.HEADER}FILTERS{bcolors.ENDC}", "="*40))
+    print("%-20s:%s"%("HIDE STATUS CODE",args.hs_filter))    
+    print("%-20s:%s"%("HIDE CONTENT LENGTH",args.hc_filter))    
+    print("%-20s:%s"%("HIDE WEB SERVER",args.hw_filter))    
+    print("%-20s:%s"%("HIDE RE PATTERN",args.hr_filter))    
+    print()
     sleep(2)
 
 def verbose(state, msg):
@@ -538,11 +539,11 @@ def response_filter(hs_filter, hc_filter, hw_filter, hr_filter, response):
 def thread_starter(args):
     """this functions prepare and execute (start) every thread """
 
-    # initializating global var run_event to stop threads when required
+    # initializating run_event to stop threads when required
     args.run_event = threading.Event()
     args.run_event.set()
 
-    args.words_requested = [] # debugging
+    args.words_requested = [] # words already requested. used to avoid repeating the same request
     
     # creating thread lists
     thread_list = []
@@ -561,11 +562,12 @@ def thread_starter(args):
         if i == 0:
             sleep(0.1)
 
+    exit_msg = ""
     try:
         # if a thread clean run_event variable, that means a error has happened
         # for that reason, all threads must stop and the program itself should stop too
         while args.run_event.is_set() and threading.active_count() > 3:
-            sleep(0.1)
+            sleep(0.4)
         
         args.run_event.clear()
         exit_msg = "[!] program finished "
@@ -574,8 +576,7 @@ def thread_starter(args):
     except KeyboardInterrupt:
         # to stop threads, run_event should be clear()
         args.run_event.clear()
-
-        exit_msg = "[!] KeyboardInterrupt: Program finished by user..."    
+        exit_msg = "[!] KeyboardInterrupt: Program finished by user...\n"    
         exit_msg += "[!] threads successfully closed \n"
         exit_code = -1
 
@@ -598,7 +599,7 @@ def main():
     parsed_arguments = parse_arguments()
 
     validate_arguments(parsed_arguments)    
-
+        
     initial_checks(parsed_arguments)
 
     if (parsed_arguments.quiet == False):
@@ -619,6 +620,7 @@ if __name__ == "__main__":
 #   - agregar opcion para ignorar errores debido a que por ejemplo si se quiere realizar un fuzzing de subdominios,
 #     nos dara error siempre
 #   - Aceptar rangos de valores en los content length y status code
+#   - implementar multiproceso combinado con multhilo
 
 ##  ERRORES O BUGS PARA CORREGIR
 #   - refactorizar algunas funciones                                                                                                                                                                                                         
